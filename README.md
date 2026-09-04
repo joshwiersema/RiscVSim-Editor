@@ -29,8 +29,14 @@ Download the installer for your platform from the Releases page:
 | Platform | File |
 | --- | --- |
 | Windows | `RiscSim-<version>-win-x64.exe` (installer) or `.zip` (portable) |
-| macOS | `RiscSim-<version>-mac-universal.dmg` |
+| macOS | `RiscSim-<version>-mac-universal.dmg` (or `.zip`) |
 | Linux | `RiscSim-<version>-linux-x86_64.AppImage` or `.deb` |
+
+The installers are not code-signed yet. Windows SmartScreen will say the publisher is unknown: choose *More info › Run anyway*. macOS may say the app is damaged or from an unidentified developer; open it once with right-click › Open, or run `xattr -cr /Applications/RiscSim.app`.
+
+### Updates
+
+RiscSim checks GitHub Releases for a newer version shortly after launch and every few hours while running. On Windows and Linux (AppImage) the update downloads in the background and installs when you restart, or when you quit. On macOS and the Linux `.deb` it tells you a new version exists and opens the download page, because installing over an unsigned app is not permitted there. You can trigger a check any time from *Help › Check for updates…*.
 
 To compile C you also need a RISC-V GCC. The xPack `riscv-none-elf-gcc` release works on all three platforms; Debian/Ubuntu users can `apt install gcc-riscv64-unknown-elf`. Point RiscSim at it under File › Settings (or leave it blank to auto-detect on `PATH`).
 
@@ -45,7 +51,12 @@ npm run dist       # installers in release/ for the current platform
 
 On Windows, if `npm run dist` fails with `EPERM … rename win-unpacked.tmp`, the Documents folder is being locked by sync or antivirus scanning; build to another location with `npx electron-builder -c.directories.output=C:/riscsim-release`.
 
-Tagging a commit `vX.Y.Z` builds installers for Windows, macOS, and Linux on GitHub Actions and attaches them to a release.
+### Releasing
+
+1. Bump `version` in `package.json` and commit.
+2. Tag it `vX.Y.Z` (the tag must match the version exactly) and push the tag.
+
+GitHub Actions runs the tests, builds installers for Windows, macOS, and Linux, and attaches them plus the auto-update metadata (`latest*.yml`, `*.blockmap`) to a release. Installed copies pick up the new version on their next check.
 
 ## Using the simulator
 

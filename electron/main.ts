@@ -4,6 +4,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { checkForUpdates, initUpdater, RELEASES_URL } from './updater';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
@@ -11,6 +12,8 @@ const isDev = !app.isPackaged;
 const useDevServer = isDev && !process.env.RISCSIM_LOAD_DIST;
 const logRenderer = !!process.env.RISCSIM_LOG_RENDERER;
 const DEV_URL = process.env.RISCSIM_DEV_URL ?? 'http://localhost:5173';
+const SOURCE_EXTENSIONS = new Set(['.s', '.S', '.asm', '.c', '.h', '.txt']);
+const MAX_RECENT_FILES = 8;
 
 interface Settings {
   compilerPath: string;
@@ -52,7 +55,7 @@ function createWindow(): void {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
     },
   });
   if (logRenderer) {
@@ -65,8 +68,35 @@ function createWindow(): void {
   } else {
     void win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
   }
-  win.webContents.setWindowOpenHandler(({ url }) => { void shell.openExternal(url); return { action: 'deny' }; });
+  win.webContents.setWindowOpenHandler(({ url }) => { void openExternalSafely(url); return { action: 'deny' }; });
+  // The renderer is a local bundle; never let it navigate anywhere else.
+  win.webContents.on('will-navigate', (event, url) => {
+    const allowed = useDevServer ? url.startsWith(DEV_URL) : url.startsWith('file:');
+    if (!allowed) { event.preventDefault(); void openExternalSafely(url); }
+  });
+  win.webContents.once('did-finish-load', () => { if (pendingOpen) { void openPath(pendingOpen); pendingOpen = null; } });
   win.on('closed', () => { win = null; });
+}
+
+async function openExternalSafely(url: string): Promise<void> {
+  if (url.startsWith('https://') || url.startsWith('http://')) await shell.openExternal(url);
+}
+
+/** A file handed to us by the OS (double-click, "Open with", second instance). */
+let pendingOpen: string | null = null;
+
+function sourceFileFromArgv(argv: string[]): string | null {
+  return argv.slice(1).find((a) => !a.startsWith('-') && SOURCE_EXTENSIONS.has(path.extname(a))) ?? null;
+}
+
+function openFromOs(file: string): void {
+  if (win && !win.webContents.isLoading()) {
+    void openPath(file);
+    if (win.isMinimized()) win.restore();
+    win.focus();
+  } else {
+    pendingOpen = file;
+  }
 }
 
 function send(action: string, payload?: unknown): void {
@@ -124,10 +154,30 @@ function buildMenu(): void {
       submenu: [
         { label: 'Shortcuts && syscalls', accelerator: 'F1', click: () => send('help') },
         { label: 'Project on GitHub', click: () => void shell.openExternal('https://github.com/joshwiersema/RiscVSim-Editor') },
+        { label: 'Report an issue', click: () => void shell.openExternal('https://github.com/joshwiersema/RiscVSim-Editor/issues') },
+        { type: 'separator' },
+        { label: 'Check for updates…', click: () => void checkForUpdates(true) },
+        { label: 'About RiscSim', click: () => void showAbout() },
       ],
     },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+async function showAbout(): Promise<void> {
+  const opts = {
+    type: 'info' as const,
+    title: 'About RiscSim',
+    message: `RiscSim ${app.getVersion()}`,
+    detail: `A visual RISC-V assembly editor and processor simulator.
+
+Electron ${process.versions.electron} · Chromium ${process.versions.chrome} · Node ${process.versions.node}`,
+    buttons: ['Releases page', 'Close'],
+    defaultId: 1,
+    cancelId: 1,
+  };
+  const { response } = win ? await dialog.showMessageBox(win, opts) : await dialog.showMessageBox(opts);
+  if (response === 0) void shell.openExternal(RELEASES_URL);
 }
 
 async function openPath(file: string): Promise<void> {
@@ -141,7 +191,7 @@ async function openPath(file: string): Promise<void> {
 }
 
 function rememberRecent(file: string): void {
-  settings.recentFiles = [file, ...settings.recentFiles.filter((f) => f !== file)].slice(0, 8);
+  settings.recentFiles = [file, ...settings.recentFiles.filter((f) => f !== file)].slice(0, MAX_RECENT_FILES);
   void saveSettings();
   buildMenu();
 }
@@ -242,12 +292,16 @@ ipcMain.handle('compiler:compile', async (_e, source: string, extraFlags: string
     ...splitFlags(settings.compilerFlags), ...splitFlags(extraFlags),
     path.join(res, 'crt0.S'), src, '-o', out,
   ];
-  const r = await runCommand(gcc, args, dir);
-  const command = `${gcc} ${args.join(' ')}`;
-  const log = [r.error ?? '', r.stdout, r.stderr].filter(Boolean).join('\n');
-  if (r.code !== 0) return { ok: false, log: log || `compiler exited with code ${r.code}`, command };
-  const elf = await fs.readFile(out);
-  return { ok: true, elf: Array.from(elf), log, command };
+  try {
+    const r = await runCommand(gcc, args, dir);
+    const command = `${gcc} ${args.join(' ')}`;
+    const log = [r.error ?? '', r.stdout, r.stderr].filter(Boolean).join('\n');
+    if (r.code !== 0) return { ok: false, log: log || `compiler exited with code ${r.code}`, command };
+    const elf = await fs.readFile(out);
+    return { ok: true, elf: Array.from(elf), log, command };
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined);
+  }
 });
 
 function splitFlags(s: string): string[] {
@@ -256,11 +310,25 @@ function splitFlags(s: string): string[] {
 
 /* ----------------------------------------------------------------- app */
 
-app.whenReady().then(async () => {
-  await loadSettings();
-  buildMenu();
-  createWindow();
-  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
-});
+// One running copy: a second launch (e.g. double-clicking another .s file) hands its file to us.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', (_e, argv) => {
+    const file = sourceFileFromArgv(argv);
+    if (file) openFromOs(file);
+    else if (win) { if (win.isMinimized()) win.restore(); win.focus(); }
+  });
+  app.on('open-file', (event, file) => { event.preventDefault(); openFromOs(file); });
+  if (app.isPackaged) pendingOpen = sourceFileFromArgv(process.argv);
 
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+  app.whenReady().then(async () => {
+    await loadSettings();
+    buildMenu();
+    createWindow();
+    initUpdater(() => win);
+    app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+  });
+
+  app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+}
