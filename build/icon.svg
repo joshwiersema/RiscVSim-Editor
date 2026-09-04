@@ -1,7 +1,6 @@
 <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256'>
-<defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='#6366f1'/><stop offset='1' stop-color='#7c3aed'/></linearGradient></defs>
-<rect width='256' height='256' rx='56' fill='url(#g)'/>
-<g fill='none' stroke='white' stroke-opacity='.55' stroke-width='6' stroke-linecap='round'>
-<path d='M40 96 H84 M40 128 H72 M40 160 H84'/><path d='M172 96 H216 M184 128 H216 M172 160 H216'/></g>
-<text x='128' y='168' font-family='Inter,Segoe UI,Arial' font-size='120' font-weight='700' fill='white' text-anchor='middle'>R</text>
+<g fill='#6b78c4'><rect x='70' y='10' width='12' height='14' rx='2'/><rect x='122' y='10' width='12' height='14' rx='2'/><rect x='174' y='10' width='12' height='14' rx='2'/><rect x='70' y='232' width='12' height='14' rx='2'/><rect x='122' y='232' width='12' height='14' rx='2'/><rect x='174' y='232' width='12' height='14' rx='2'/><rect x='10' y='70' width='14' height='12' rx='2'/><rect x='10' y='122' width='14' height='12' rx='2'/><rect x='10' y='174' width='14' height='12' rx='2'/><rect x='232' y='70' width='14' height='12' rx='2'/><rect x='232' y='122' width='14' height='12' rx='2'/><rect x='232' y='174' width='14' height='12' rx='2'/></g>
+<rect x='24' y='24' width='208' height='208' rx='30' fill='#3346a8'/>
+<path d='M68 76 L128 184 L188 76' fill='none' stroke='white' stroke-width='26' stroke-linecap='round' stroke-linejoin='round'/>
+<circle cx='128' cy='186' r='9' fill='#3dd9c0'/>
 </svg>
