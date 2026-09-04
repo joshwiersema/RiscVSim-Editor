@@ -21,6 +21,9 @@ Runs as a native application on **Windows, macOS, and Linux**. Download the late
 - **C programs.** Switch the editor to C, press Compile, and RiscSim runs your installed RISC-V GCC with its own start-up file, linker script, and `riscsim.h`, then loads the ELF. File › Load ELF opens any rv32 ELF built elsewhere.
 - **Editor** with RISC-V and C highlighting, breakpoints, per-stage line markers, assembler errors, file open/save, recent files, and dark mode.
 - **Inspector** with a colour-coded bit-field breakdown of the instruction in flight; registers with read/write highlighting; memory dump with data labels and last-access highlighting.
+- **Workbench layout.** An activity rail on the left opens a side panel for each part of the machine (editor, program listing, memory, caches, I/O devices, console, statistics, ISA reference; `Ctrl+1`…`Ctrl+8`, `Ctrl+B` to hide) while registers and memory stay on the right; a status bar shows run state, cycle, PC, next instruction, CPI, and cache hit rates at all times. Light and dark themes.
+- **Statistics** for the whole run: CPI/IPC, stall and flush counts, pipeline utilisation, instruction mix by category, branch-taken rate, memory traffic, and per-cache hit rates.
+- **Reference panel**: searchable RV32IM instruction table, register ABI roles and calling convention, syscalls, memory map, device addresses, directives, pseudo-instructions, and RV32C mnemonics.
 
 ## Installing
 

@@ -1,0 +1,42 @@
+/* Source editor (CodeMirror) and the assembled program listing. */
+.editor { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.editor-host { flex: 1; min-height: 0; overflow: hidden; }
+.cm-editor { height: 100%; font-family: var(--font-mono); font-size: 12.5px; background: var(--bg-panel); }
+.cm-editor.cm-focused { outline: none; }
+.cm-scroller { overflow: auto; line-height: 1.55; }
+.cm-gutters { background: var(--bg-panel); border-right: 1px solid var(--border); color: var(--text-faint); }
+.cm-activeLine { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.cm-activeLineGutter { background: transparent; }
+.cm-marks-gutter { width: 30px; cursor: pointer; }
+.cm-marks-gutter .cm-gutterElement { display: flex; align-items: center; justify-content: center; }
+.bp-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--danger); box-shadow: 0 0 0 2px var(--danger-soft); }
+.bp-dot.is-off { background: transparent; box-shadow: inset 0 0 0 1.5px var(--border-strong); }
+.bp-cell { cursor: pointer; width: 22px; }
+.bp-cell:hover .bp-dot.is-off { box-shadow: inset 0 0 0 1.5px var(--danger); }
+.err-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--danger); }
+.cm-error-line { background: var(--danger-soft); }
+.cm-stage { position: relative; }
+.cm-stage-IF { background: color-mix(in srgb, var(--stage-IF) 14%, transparent); }
+.cm-stage-ID { background: color-mix(in srgb, var(--stage-ID) 14%, transparent); }
+.cm-stage-EX { background: color-mix(in srgb, var(--stage-EX) 18%, transparent); }
+.cm-stage-MEM { background: color-mix(in srgb, var(--stage-MEM) 14%, transparent); }
+.cm-stage-WB { background: color-mix(in srgb, var(--stage-WB) 12%, transparent); }
+.stage-tag { display: inline-block; font-family: var(--font-ui); font-size: 9.5px; font-weight: 700; letter-spacing: 0.02em; padding: 1px 4px; border-radius: 4px; color: white; line-height: 1.3; }
+.stage-tag-IF { background: var(--stage-IF); }
+.stage-tag-ID { background: var(--stage-ID); }
+.stage-tag-EX { background: var(--stage-EX); }
+.stage-tag-MEM { background: var(--stage-MEM); }
+.stage-tag-WB { background: var(--stage-WB); }
+.editor-errors { border-top: 1px solid var(--border); max-height: 120px; overflow: auto; background: var(--danger-soft); }
+.editor-error { display: block; width: 100%; text-align: left; border: 0; background: transparent; padding: 4px 10px; cursor: pointer; color: var(--danger); font-family: var(--font-mono); font-size: 11.5px; }
+.editor-error:hover { background: rgba(192, 57, 43, 0.08); }
+.editor-error-line { font-weight: 600; margin-right: 6px; }
+.editor-hint { padding: 4px 10px; font-size: 11px; color: var(--text-faint); border-top: 1px solid var(--border); }
+
+/* --------------------------------------------------------------- program */
+.program { width: max-content; min-width: 100%; }
+.program td { white-space: nowrap; }
+.program tr.is-active td { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.program tr.is-next td { box-shadow: inset 3px 0 0 var(--stage-IF); }
+.program-label { color: var(--syn-label); font-weight: 600; }
+.program-stages { display: flex; gap: 3px; }

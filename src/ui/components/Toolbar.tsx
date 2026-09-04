@@ -1,12 +1,11 @@
 import { BrandMark } from './BrandMark';
+import { Icon } from './Icons';
 import { useStore } from '../state/store';
 import { EXAMPLES } from '../examples';
 
 export function Toolbar() {
   const s = useStore();
   const m = s.machine;
-  const stats = m?.core.stats;
-  const cpi = stats && stats.instructions ? (stats.cycles / stats.instructions).toFixed(2) : '–';
   const finished = !!m?.finished;
   const blocked = !!m?.blocked;
   const isC = s.language === 'c';
@@ -15,14 +14,14 @@ export function Toolbar() {
   return (
     <header className="toolbar">
       <div className="brand" title={s.filePath ?? 'unsaved file'}>
-        <BrandMark />
+        <BrandMark size={22} />
         <span className="brand-name">RiscSim</span>
         <span className="file-name">{fileName}{s.fileDirty ? ' ●' : ''}</span>
       </div>
 
       <div className="toolbar-group">
-        <button className="btn btn-ghost btn-xs" onClick={() => void s.openFile()} title="Open (Ctrl+O)">Open</button>
-        <button className="btn btn-ghost btn-xs" onClick={() => void s.saveFile()} title="Save (Ctrl+S)">Save</button>
+        <button className="btn btn-ghost btn-sm" onClick={() => void s.openFile()} title="Open (Ctrl+O)"><Icon name="folder" size={14} /> Open</button>
+        <button className="btn btn-ghost btn-sm" onClick={() => void s.saveFile()} title="Save (Ctrl+S)"><Icon name="save" size={14} /> Save</button>
         <select className="select select-sm" value={s.activeExample} onChange={(e) => s.loadExample(e.target.value)} title="Load an example program">
           <option value="" disabled>Examples…</option>
           {EXAMPLES.map((ex) => <option key={ex.id} value={ex.id}>{ex.title}</option>)}
@@ -33,22 +32,26 @@ export function Toolbar() {
         </div>
       </div>
 
+      <span className="toolbar-sep" />
+
       <div className="toolbar-group">
-        <button className={`btn ${s.dirty ? 'is-dirty' : ''}`} onClick={s.build} disabled={s.compiling} title={isC ? 'Compile with RISC-V GCC and load (Ctrl+Enter)' : 'Assemble (Ctrl+Enter)'}>
+        <button className={`btn btn-sm ${s.dirty ? 'is-dirty' : ''}`} onClick={s.build} disabled={s.compiling} title={isC ? 'Compile with RISC-V GCC and load (Ctrl+Enter)' : 'Assemble (Ctrl+Enter)'}>
           {s.compiling ? 'Compiling…' : isC ? 'Compile' : s.dirty ? 'Assemble ●' : 'Assemble'}
         </button>
         {!isC && <label className="check" title="Emit 16-bit RV32C encodings wherever possible"><input type="checkbox" checked={s.autoCompress} onChange={(e) => s.setAutoCompress(e.target.checked)} /> auto-compress</label>}
-        <button className="btn" onClick={s.reset} title="Reset (R)">Reset</button>
+        <button className="btn btn-sm" onClick={s.reset} title="Reset (R)">Reset</button>
       </div>
 
+      <span className="toolbar-sep" />
+
       <div className="toolbar-group toolbar-run">
-        <button className="btn btn-icon" onClick={s.stepBack} disabled={!m?.canUndo} title="Step back one cycle (B / F9)">⏮</button>
+        <button className="btn btn-icon" onClick={s.stepBack} disabled={!m?.canUndo} title="Step back one cycle (B / F9)"><Icon name="skip-back" /></button>
         <button className={`btn btn-primary ${s.playing ? 'is-on' : ''}`} onClick={() => s.setPlaying(!s.playing)} disabled={finished || blocked} title="Play / pause (Space / F5)">
-          {s.playing ? '❚❚ Pause' : '▶ Play'}
+          <Icon name={s.playing ? 'pause' : 'play'} /> {s.playing ? 'Pause' : 'Play'}
         </button>
-        <button className="btn" onClick={s.step} disabled={finished || blocked} title="Execute one clock cycle (N / F10)">Step ⏭</button>
-        <button className="btn" onClick={s.subStep} disabled={finished || blocked} title="Walk through the current cycle one stage at a time (M / F11)">Walk ▸</button>
-        <button className="btn" onClick={s.run} disabled={finished || blocked} title="Run to the end or next breakpoint">Run ⏩</button>
+        <button className="btn" onClick={s.step} disabled={finished || blocked} title="Execute one clock cycle (N / F10)"><Icon name="step" /> Step</button>
+        <button className="btn" onClick={s.subStep} disabled={finished || blocked} title="Walk through the current cycle one stage at a time (M / F11)"><Icon name="walk" /> Walk</button>
+        <button className="btn" onClick={s.run} disabled={finished || blocked} title="Run to the end or next breakpoint (Shift+F5)"><Icon name="run" /> Run</button>
       </div>
 
       <div className="toolbar-group">
@@ -62,6 +65,8 @@ export function Toolbar() {
         </div>
       </div>
 
+      <span className="toolbar-sep" />
+
       <div className="toolbar-group">
         <div className="segmented" title="Processor model">
           <button className={s.model === 'single' ? 'is-on' : ''} onClick={() => s.setModel('single')}>Single-cycle</button>
@@ -73,15 +78,6 @@ export function Toolbar() {
             <label className="check" title="Stall on load-use (and on every RAW hazard when forwarding is off)"><input type="checkbox" checked={s.options.hazardDetection} onChange={(e) => s.setOptions({ hazardDetection: e.target.checked })} /> hazard unit</label>
           </>
         )}
-      </div>
-
-      <div className="toolbar-stats">
-        <span className="stat"><b>{m?.core.cycle ?? 0}</b> cycles</span>
-        <span className="stat"><b>{stats?.instructions ?? 0}</b> instr</span>
-        <span className="stat">CPI <b>{cpi}</b></span>
-        {s.model === 'pipeline' && <span className="stat"><b>{stats?.stalls ?? 0}</b> stalls · <b>{stats?.flushes ?? 0}</b> flushes</span>}
-        <button className="btn btn-ghost btn-xs" onClick={() => s.setDialog('settings')} title="Settings (compiler path)">⚙</button>
-        <button className="btn btn-ghost btn-xs" onClick={() => s.setDialog('help')} title="Help & shortcuts (F1)">?</button>
       </div>
     </header>
   );

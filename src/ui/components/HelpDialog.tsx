@@ -15,6 +15,8 @@ const SHORTCUTS: readonly [string, string][] = [
   ['Space · F5', 'Play / pause'],
   ['R', 'Reset the simulation'],
   ['Ctrl+Enter', 'Assemble (or compile C)'],
+  ['Ctrl+B', 'Show / hide the side panel'],
+  ['Ctrl+1 … Ctrl+8', 'Side panel: Editor, Program, Memory, Cache, I/O, Console, Statistics, Reference'],
   ['Ctrl+O / Ctrl+S', 'Open / save the source file'],
   ['Ctrl+wheel', 'Zoom the datapath (drag to pan)'],
   ['Esc', 'Unpin explanation / pause'],
@@ -32,6 +34,7 @@ export function HelpDialog({ onClose }: HelpDialogProps) {
           <section>
             <h4>The idea</h4>
             <p>Every wire, mux, and block in the datapath knows <em>why</em> it is active for the instruction flowing through it. Hover to read the explanation; click to pin it in the Inspector. Use <b>Walk</b> to reveal a cycle one stage at a time when a full clock step is too much at once.</p>
+            <p>The icon bar on the left opens a side panel for each part of the machine: the source editor, the assembled program, memory, the L1 caches, the memory-mapped devices, the console, run statistics, and an ISA reference. Registers and memory also stay on the right while you step. The status bar at the bottom always shows the run state, cycle, PC, next instruction, CPI, and cache hit rates.</p>
           </section>
           <section>
             <h4>Keyboard</h4>

@@ -69,9 +69,16 @@ await shot('09-pipeline-diagram');
 // Branch example, run to end.
 await page.select('select.select', 'branches');
 await new Promise((r) => setTimeout(r, 300));
-await clickText('Run ⏩');
+await clickText('Run');
 await clickText('Console');
 await shot('10-run-console');
+
+// Side-panel views from the activity rail.
+const clickRail = async (label) => { await page.click(`.rail-btn[aria-label="${label}"]`); await new Promise((r) => setTimeout(r, 200)); };
+await clickRail('Statistics'); await shot('11-stats');
+await clickRail('Cache'); await shot('12-cache');
+await clickRail('Reference'); await shot('13-reference');
+await clickRail('Toggle theme'); await clickRail('Editor'); await shot('14-dark-editor');
 
 console.log(errors.length ? errors.join('\n') : 'no page errors');
 await browser.close();

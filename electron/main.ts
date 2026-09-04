@@ -42,6 +42,11 @@ function resourcesDir(): string {
 
 let win: BrowserWindow | null = null;
 
+/** The chip logo, used for the window/taskbar in dev and on Linux (Windows and macOS take it from the app bundle). */
+function windowIcon(): string {
+  return isDev ? path.join(__dirname, '..', 'build', 'icon.png') : path.join(resourcesDir(), 'icon.png');
+}
+
 function createWindow(): void {
   win = new BrowserWindow({
     width: 1600,
@@ -49,7 +54,8 @@ function createWindow(): void {
     minWidth: 1100,
     minHeight: 700,
     title: 'RiscSim',
-    backgroundColor: '#f6f7f9',
+    icon: windowIcon(),
+    backgroundColor: '#eef0f3',
     autoHideMenuBar: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -309,6 +315,10 @@ function splitFlags(s: string): string[] {
 }
 
 /* ----------------------------------------------------------------- app */
+
+// Match the identity electron-builder stamps on the Start-menu/desktop shortcuts so the
+// Windows taskbar groups the window with them and shows the shortcut's (current) icon.
+app.setAppUserModelId('dev.riscsim.app');
 
 // One running copy: a second launch (e.g. double-clicking another .s file) hands its file to us.
 if (!app.requestSingleInstanceLock()) {

@@ -9,8 +9,21 @@ import type { StageName } from '@/core/sim/narrate';
 import type { NumberBase } from '@/core/util/format';
 import { EXAMPLES, C_EXAMPLE } from '../examples';
 import { desktop, isDesktop } from '../desktop';
+import { applyTheme, loadTheme, type ThemeMode } from './theme';
 
 export const PHASE_COMPLETE = 4;
+
+/** Views reachable from the activity rail; each fills the side panel. */
+export type SidebarView = 'editor' | 'program' | 'memory' | 'cache' | 'io' | 'console' | 'stats' | 'reference';
+const SIDEBAR_KEY = 'riscsim.sidebar';
+
+function loadSidebar(): { view: SidebarView; open: boolean } {
+  try {
+    const raw = localStorage.getItem(SIDEBAR_KEY);
+    if (raw) return { view: 'editor', open: true, ...(JSON.parse(raw) as Partial<{ view: SidebarView; open: boolean }>) };
+  } catch { /* ignore */ }
+  return { view: 'editor', open: true };
+}
 
 export interface HoverTarget {
   readonly explain: string;
@@ -57,7 +70,14 @@ export interface AppState {
   compileLog: string | null;
   compiling: boolean;
   dialog: DialogKind;
+  sidebarView: SidebarView;
+  sidebarOpen: boolean;
+  theme: ThemeMode;
 
+  /** Show a view in the side panel; choosing the visible one collapses the panel. */
+  setSidebarView(v: SidebarView): void;
+  toggleSidebar(): void;
+  setTheme(t: ThemeMode): void;
   setSource(src: string): void;
   setLanguage(l: Language): void;
   loadExample(id: string): void;
@@ -109,6 +129,13 @@ function persist(src: string): void {
 }
 
 const initial = loadInitialSource();
+const initialSidebar = loadSidebar();
+const initialTheme = loadTheme();
+applyTheme(initialTheme);
+
+function persistSidebar(view: SidebarView, open: boolean): void {
+  try { localStorage.setItem(SIDEBAR_KEY, JSON.stringify({ view, open })); } catch { /* ignore */ }
+}
 
 export const useStore = create<AppState>((set, get) => {
   const bump = (extra: Partial<AppState> = {}) => {
@@ -170,7 +197,22 @@ export const useStore = create<AppState>((set, get) => {
     compileLog: null,
     compiling: false,
     dialog: 'none',
+    sidebarView: initialSidebar.view,
+    sidebarOpen: initialSidebar.open,
+    theme: initialTheme,
 
+    setSidebarView(v) {
+      const { sidebarView, sidebarOpen } = get();
+      const open = v === sidebarView ? !sidebarOpen : true;
+      persistSidebar(v, open);
+      set({ sidebarView: v, sidebarOpen: open });
+    },
+    toggleSidebar() {
+      const { sidebarView, sidebarOpen } = get();
+      persistSidebar(sidebarView, !sidebarOpen);
+      set({ sidebarOpen: !sidebarOpen });
+    },
+    setTheme(t) { applyTheme(t); set({ theme: t }); },
     setSource(src) {
       if (get().language === 'asm') persist(src);
       set({ source: src, activeExample: '', dirty: get().program !== null, fileDirty: true });

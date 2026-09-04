@@ -1,0 +1,141 @@
+/* Design tokens. Light palette on :root; dark palette for the OS preference
+   (unless the user picked light) and for an explicit dark choice. */
+:root {
+  --font-ui: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', Consolas, monospace;
+
+  --bg: #eef0f3;
+  --bg-panel: #ffffff;
+  --bg-sunken: #f3f4f7;
+  --bg-hover: #e9ebef;
+  --bg-rail: #f7f8fa;
+  --bg-status: #ffffff;
+  --border: #dde1e6;
+  --border-strong: #c6ccd5;
+  --text: #191d23;
+  --text-muted: #5b6370;
+  --text-faint: #8a919c;
+
+  /* UI accent: dark yellow / goldenrod. Also the colour of control signals. */
+  --accent: #a16207;
+  --accent-strong: #854d0e;
+  --accent-soft: #fdf3c4;
+  --accent-text: #6b4308;
+  --on-accent: #ffffff;
+  --accent-ring: rgba(161, 98, 7, 0.28);
+
+  /* Data wires and "read" highlights. */
+  --data: #2457c5;
+  --data-soft: #dfe8fb;
+  --data-text: #1c3f8f;
+
+  --control: var(--accent);
+  --control-soft: var(--accent-soft);
+  --inactive: #c9cfd8;
+  --danger: #c0392b;
+  --danger-soft: #fbe3e0;
+  --ok: #15803d;
+  --ok-soft: #dcf5e4;
+  --warn: #9a5b00;
+
+  --stage-IF: #0284c7;
+  --stage-ID: #7c3aed;
+  --stage-EX: #d97706;
+  --stage-MEM: #059669;
+  --stage-WB: #dc2626;
+
+  --syn-keyword: #1d4ed8;
+  --syn-register: #0f766e;
+  --syn-number: #a16207;
+  --syn-string: #be185d;
+  --syn-comment: #8b93a1;
+  --syn-label: #0e7490;
+  --syn-meta: #6b7280;
+
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
+  --shadow-md: 0 4px 12px rgba(16, 24, 40, 0.08), 0 1px 3px rgba(16, 24, 40, 0.06);
+  --shadow-lg: 0 12px 32px rgba(16, 24, 40, 0.16), 0 2px 6px rgba(16, 24, 40, 0.08);
+  --radius: 6px;
+  --radius-lg: 8px;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #101216;
+    --bg-panel: #181b21;
+    --bg-sunken: #13161b;
+    --bg-hover: #21252d;
+    --bg-rail: #121418;
+    --bg-status: #14171c;
+    --border: #272c35;
+    --border-strong: #3a4150;
+    --text: #e6e8ec;
+    --text-muted: #9aa3b2;
+    --text-faint: #6b7380;
+    --accent: #e0a92a;
+    --accent-strong: #f0be45;
+    --accent-soft: #3a2d0c;
+    --accent-text: #f5d56d;
+    --on-accent: #1a1405;
+    --accent-ring: rgba(224, 169, 42, 0.32);
+    --data: #6d9cff;
+    --data-soft: #1d2a48;
+    --data-text: #a8c3ff;
+    --inactive: #3a404b;
+    --danger: #ef6a5e;
+    --danger-soft: #45201d;
+    --ok: #3fbf74;
+    --ok-soft: #14331f;
+    --warn: #f0be45;
+    --syn-keyword: #8ab4ff;
+    --syn-register: #5eead4;
+    --syn-number: #f5d56d;
+    --syn-string: #f9a8d4;
+    --syn-comment: #6b7380;
+    --syn-label: #67d2e8;
+    --syn-meta: #9aa3b2;
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.55);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme='dark'] {
+  --bg: #101216;
+  --bg-panel: #181b21;
+  --bg-sunken: #13161b;
+  --bg-hover: #21252d;
+  --bg-rail: #121418;
+  --bg-status: #14171c;
+  --border: #272c35;
+  --border-strong: #3a4150;
+  --text: #e6e8ec;
+  --text-muted: #9aa3b2;
+  --text-faint: #6b7380;
+  --accent: #e0a92a;
+  --accent-strong: #f0be45;
+  --accent-soft: #3a2d0c;
+  --accent-text: #f5d56d;
+  --on-accent: #1a1405;
+  --accent-ring: rgba(224, 169, 42, 0.32);
+  --data: #6d9cff;
+  --data-soft: #1d2a48;
+  --data-text: #a8c3ff;
+  --inactive: #3a404b;
+  --danger: #ef6a5e;
+  --danger-soft: #45201d;
+  --ok: #3fbf74;
+  --ok-soft: #14331f;
+  --warn: #f0be45;
+  --syn-keyword: #8ab4ff;
+  --syn-register: #5eead4;
+  --syn-number: #f5d56d;
+  --syn-string: #f9a8d4;
+  --syn-comment: #6b7380;
+  --syn-label: #67d2e8;
+  --syn-meta: #9aa3b2;
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.55);
+  color-scheme: dark;
+}
