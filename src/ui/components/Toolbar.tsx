@@ -1,3 +1,4 @@
+import { BrandMark } from './BrandMark';
 import { useStore } from '../state/store';
 import { EXAMPLES } from '../examples';
 
@@ -14,7 +15,7 @@ export function Toolbar() {
   return (
     <header className="toolbar">
       <div className="brand" title={s.filePath ?? 'unsaved file'}>
-        <span className="brand-mark">R</span>
+        <BrandMark />
         <span className="brand-name">RiscSim</span>
         <span className="file-name">{fileName}{s.fileDirty ? ' ●' : ''}</span>
       </div>

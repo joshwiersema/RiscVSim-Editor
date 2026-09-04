@@ -122,11 +122,7 @@ p { margin: 0 0 8px; line-height: 1.5; }
   flex-wrap: wrap;
 }
 .brand { display: flex; align-items: center; gap: 8px; margin-right: 6px; }
-.brand-mark {
-  width: 26px; height: 26px; border-radius: 7px;
-  background: linear-gradient(135deg, var(--accent), #7c3aed);
-  color: white; font-weight: 700; display: grid; place-items: center; font-size: 14px;
-}
+.brand-mark { width: 26px; height: 26px; flex-shrink: 0; display: block; }
 .brand-name { font-weight: 600; font-size: 14px; letter-spacing: -0.01em; }
 .toolbar-group { display: flex; align-items: center; gap: 6px; }
 .toolbar-run { padding: 3px; background: var(--bg-sunken); border-radius: 10px; }
