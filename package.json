@@ -15,7 +15,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "screenshots": "node scripts/screenshot.mjs shots"
+    "screenshots": "node scripts/screenshot.mjs shots",
+    "screenshots:readme": "node scripts/readme-shots.mjs docs/media"
   },
   "dependencies": {
     "@codemirror/commands": "^6.6.0",

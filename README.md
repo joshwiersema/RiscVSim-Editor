@@ -1,10 +1,87 @@
-# RiscSim
+<h1 align="center">RiscSim</h1>
 
-**A desktop RISC-V assembly editor and processor simulator built for teaching computer architecture.**
+<p align="center">
+  <strong>A desktop RISC-V assembly editor and processor simulator built for teaching computer architecture.</strong><br>
+  Hover any wire and it tells you why that wire is lit for this instruction.
+</p>
 
-RiscSim is a from-scratch alternative to [Ripes](https://github.com/mortbopet/Ripes) designed around the question students actually ask when they look at a datapath diagram: *"why is that wire lit up for this instruction?"* Hover any wire, mux, register, cache line, or control signal and RiscSim tells you its current value and a plain-English reason it is (or isn't) active for the instruction flowing through it. Step a cycle at a time, walk through a single cycle one pipeline stage at a time, and rewind whenever you need to.
+<p align="center">
+  <a href="../../releases/latest"><img alt="Download the latest release" src="https://img.shields.io/github/v/release/joshwiersema/RiscVSim-Editor?label=download&style=for-the-badge&color=b8860b"></a>
+  <img alt="Platforms" src="https://img.shields.io/badge/windows%20%C2%B7%20macos%20%C2%B7%20linux-informational?style=for-the-badge">
+  <img alt="License" src="https://img.shields.io/badge/license-MIT-blue?style=for-the-badge">
+</p>
 
-Runs as a native application on **Windows, macOS, and Linux**. Download the latest installer from the [Releases](../../releases) page.
+![The RiscSim workbench: the single-cycle datapath mid-instruction, with the ALU hovered and explained](docs/media/hero.png)
+
+<p align="center"><em>Cycle 4 of <code>sub t3, t1, t0</code>. Live wires are drawn in colour, unused hardware fades out, and hovering the ALU says exactly what it computed and where the result is going.</em></p>
+
+RiscSim is built from scratch around the question students actually ask when they look at a datapath diagram: *"why is that wire lit up for this instruction?"* Hover any wire, mux, register, cache line, or control signal and RiscSim tells you its current value and a plain-English reason it is (or isn't) active for the instruction flowing through it. Step a cycle at a time, walk through a single cycle one pipeline stage at a time, and rewind whenever you need to.
+
+## Download
+
+Runs as a native application on **Windows, macOS, and Linux**. Grab the installer for your platform from the [latest release](../../releases/latest):
+
+| Platform | File |
+| --- | --- |
+| Windows | `RiscSim-<version>-win-x64.exe` (installer) or `.zip` (portable) |
+| macOS | `RiscSim-<version>-mac-universal.dmg` (or `.zip`) |
+| Linux | `RiscSim-<version>-linux-x86_64.AppImage` or `.deb` |
+
+No project setup, no toolchain, no configuration: open it, pick an example from the Examples menu, and press Step.
+
+The installers are not code-signed yet. Windows SmartScreen will say the publisher is unknown: choose *More info › Run anyway*. macOS may say the app is damaged or from an unidentified developer; open it once with right-click › Open, or run `xattr -cr /Applications/RiscSim.app`.
+
+RiscSim checks GitHub Releases for a newer version shortly after launch and every few hours while running. On Windows and Linux (AppImage) the update downloads in the background and installs when you restart, or when you quit. On macOS and the Linux `.deb` it tells you a new version exists and opens the download page, because installing over an unsigned app is not permitted there. You can trigger a check any time from *Help › Check for updates…*.
+
+To compile C you also need a RISC-V GCC. The xPack `riscv-none-elf-gcc` release works on all three platforms; Debian/Ubuntu users can `apt install gcc-riscv64-unknown-elf`. Point RiscSim at it under File › Settings (or leave it blank to auto-detect on `PATH`).
+
+## The datapath, explained
+
+Every block, wire, mux and control signal in both diagrams carries a contextual explanation. Not a generic description of what an ALU is — what *this* ALU did, this cycle, for *this* instruction.
+
+![The control unit hovered, showing the exact control signals it decoded for sub](docs/media/datapath-hover.png)
+
+Click instead of hovering and the explanation pins itself in the Inspector, next to a colour-coded bit-field breakdown of the instruction in flight.
+
+### Five-stage pipeline with real hazard handling
+
+Switch to the pipelined processor and the diagram grows a hazard-detection unit, a forwarding unit, and the four pipeline registers. Forwarding and hazard detection each have a checkbox, so you can turn them off live and watch the results go wrong.
+
+![The five-stage pipeline with the forwarding unit hovered, explaining why ForwardA selects EX/MEM](docs/media/pipeline.png)
+
+### Walk mode: one stage at a time
+
+*Walk* reveals a single cycle stage by stage, dimming the hardware that hasn't acted yet and animating the wires of the stage that just did — the missing intermediate step between "the clock ticked" and "here is everything that happened".
+
+![Walk mode part-way through a cycle, with MEM and WB still dimmed](docs/media/walk.png)
+
+### Instruction/cycle diagram
+
+Stalls show up as bubbles, flushed instructions as ×, and the whole grid scrolls back through the run.
+
+![The pipeline diagram showing IF/ID/EX/MEM/WB per instruction across 13 cycles, including a load-use stall](docs/media/pipeline-diagram.png)
+
+### Configurable L1 caches
+
+Sets, ways, block size, LRU/FIFO/random replacement, write-back/write-through and write-allocate — with every line visible, and a tag/index/offset breakdown of the last access.
+
+![The cache panel showing an 8-set 2-way L1 data cache, its hit rate, and the tag/index/offset split of the last access](docs/media/cache.png)
+
+### Memory-mapped I/O
+
+A 16×16 RGB LED matrix, eight switches, a d-pad, a character output device, and a cycle counter, all at documented addresses. Flip a switch while the program runs and the LEDs follow.
+
+![The I/O panel: switches driving the top row of the LED matrix while the program polls](docs/media/io.png)
+
+### Whole-run statistics
+
+CPI/IPC, stall and flush counts, pipeline utilisation, instruction mix by category, branch-taken rate, memory traffic, and per-cache hit rates.
+
+![The statistics panel: CPI, IPC, stalls, flushes, pipeline utilisation, instruction mix, and per-cache hit rates](docs/media/stats.png)
+
+### And a dark theme
+
+![RiscSim in dark mode, with the pipelined datapath and the this-cycle narration](docs/media/dark.png)
 
 ## Features
 
@@ -25,42 +102,6 @@ Runs as a native application on **Windows, macOS, and Linux**. Download the late
 - **Statistics** for the whole run: CPI/IPC, stall and flush counts, pipeline utilisation, instruction mix by category, branch-taken rate, memory traffic, and per-cache hit rates.
 - **Reference panel**: searchable RV32IM instruction table, register ABI roles and calling convention, syscalls, memory map, device addresses, directives, pseudo-instructions, and RV32C mnemonics.
 
-## Installing
-
-Download the installer for your platform from the Releases page:
-
-| Platform | File |
-| --- | --- |
-| Windows | `RiscSim-<version>-win-x64.exe` (installer) or `.zip` (portable) |
-| macOS | `RiscSim-<version>-mac-universal.dmg` (or `.zip`) |
-| Linux | `RiscSim-<version>-linux-x86_64.AppImage` or `.deb` |
-
-The installers are not code-signed yet. Windows SmartScreen will say the publisher is unknown: choose *More info › Run anyway*. macOS may say the app is damaged or from an unidentified developer; open it once with right-click › Open, or run `xattr -cr /Applications/RiscSim.app`.
-
-### Updates
-
-RiscSim checks GitHub Releases for a newer version shortly after launch and every few hours while running. On Windows and Linux (AppImage) the update downloads in the background and installs when you restart, or when you quit. On macOS and the Linux `.deb` it tells you a new version exists and opens the download page, because installing over an unsigned app is not permitted there. You can trigger a check any time from *Help › Check for updates…*.
-
-To compile C you also need a RISC-V GCC. The xPack `riscv-none-elf-gcc` release works on all three platforms; Debian/Ubuntu users can `apt install gcc-riscv64-unknown-elf`. Point RiscSim at it under File › Settings (or leave it blank to auto-detect on `PATH`).
-
-## Building from source
-
-```bash
-npm install
-npm run dev        # Vite dev server + Electron window with live reload
-npm test           # assembler, simulator, cache, ELF, I/O, and explanation-coverage tests
-npm run dist       # installers in release/ for the current platform
-```
-
-On Windows, if `npm run dist` fails with `EPERM … rename win-unpacked.tmp`, the Documents folder is being locked by sync or antivirus scanning; build to another location with `npx electron-builder -c.directories.output=C:/riscsim-release`.
-
-### Releasing
-
-1. Bump `version` in `package.json` and commit.
-2. Tag it `vX.Y.Z` (the tag must match the version exactly) and push the tag.
-
-GitHub Actions runs the tests, builds installers for Windows, macOS, and Linux, and attaches them plus the auto-update metadata (`latest*.yml`, `*.blockmap`) to a release. Installed copies pick up the new version on their next check.
-
 ## Using the simulator
 
 1. **Write or pick a program.** The Examples menu covers arithmetic, loops, function calls, strings, data hazards, control hazards, compressed instructions, memory-mapped I/O, and console input. Ctrl+Enter assembles.
@@ -80,6 +121,7 @@ GitHub Actions runs the tests, builds installers for Windows, macOS, and Linux, 
 | `R` | Reset |
 | Ctrl+Enter | Assemble / compile |
 | Ctrl+O, Ctrl+S | Open / save |
+| `Ctrl+1`…`Ctrl+8` | Side panels (`Ctrl+B` hides them) |
 | Ctrl+wheel, drag | Zoom / pan the datapath |
 | Esc | Unpin, pause |
 
@@ -105,7 +147,27 @@ GitHub Actions runs the tests, builds installers for Windows, macOS, and Linux, 
 
 ### Syscalls (`a7`, then `ecall`)
 
-1 print_int · 4 print_string · 5 read_int · 8 read_string (a0 buffer, a1 length) · 10 exit · 11 print_char · 12 read_char · 17 exit2 · 34 print_hex · 35 print_bin · 36 print_unsigned. Numbers match Ripes.
+1 print_int · 4 print_string · 5 read_int · 8 read_string (a0 buffer, a1 length) · 10 exit · 11 print_char · 12 read_char · 17 exit2 · 34 print_hex · 35 print_bin · 36 print_unsigned.
+
+## Building from source
+
+```bash
+npm install
+npm run dev        # Vite dev server + Electron window with live reload
+npm test           # assembler, simulator, cache, ELF, I/O, and explanation-coverage tests
+npm run dist       # installers in release/ for the current platform
+```
+
+On Windows, if `npm run dist` fails with `EPERM … rename win-unpacked.tmp`, the Documents folder is being locked by sync or antivirus scanning; build to another location with `npx electron-builder -c.directories.output=C:/riscsim-release`.
+
+The screenshots above are captured from the running app, not mocked up: start `npm run dev:web`, then `node scripts/readme-shots.mjs docs/media`.
+
+### Releasing
+
+1. Bump `version` in `package.json` and commit.
+2. Tag it `vX.Y.Z` (the tag must match the version exactly) and push the tag.
+
+GitHub Actions runs the tests, builds installers for Windows, macOS, and Linux, and attaches them plus the auto-update metadata (`latest*.yml`, `*.blockmap`) to a release. Installed copies pick up the new version on their next check.
 
 ## Architecture
 

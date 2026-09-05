@@ -22,7 +22,7 @@ function readCString(mem: Memory, addr: number, limit = 4096): string {
   return s;
 }
 
-/** Ripes-compatible syscall numbers (a7). */
+/** Syscall dispatch on the number in a7. */
 export function performEcall(regs: readonly number[], mem: Memory): EcallResult {
   const a7 = regs[17], a0 = regs[10], a1 = regs[11];
   const base = { code: a7, output: '', exit: false, exitCode: 0, input: null };
