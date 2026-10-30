@@ -1,10 +1,13 @@
 import type { Decoded } from '../isa/decode';
 import type { AluOp, BranchCond, MemWidth } from '../isa/instructions';
+import { rdWritable } from '../isa/operands';
+import type { FpuOp } from '../fp/fpu';
 
 /**
  * The control-unit outputs for one instruction. These are the classic
  * Patterson & Hennessy signals, with a few extras (ALUSrcA for auipc/jal,
- * a 3-way WB mux) so the datapath is complete for RV32IM.
+ * a WB mux that also selects CSR read data) so the datapath is complete for
+ * RV32IMF + Zicsr.
  */
 export interface Control {
   readonly valid: boolean;
@@ -14,15 +17,20 @@ export interface Control {
   readonly aluOp: AluOp;
   readonly memRead: MemWidth | null;
   readonly memWrite: MemWidth | null;
-  readonly wbSrc: 'ALU' | 'MEM' | 'PC4' | 'NONE';
+  readonly wbSrc: 'ALU' | 'MEM' | 'PC4' | 'CSR' | 'NONE';
   readonly branch: BranchCond | null;
   readonly jump: 'JAL' | 'JALR' | null;
   readonly system: 'ECALL' | 'EBREAK' | null;
+  /** FPU operation; when set the FPU, not the ALU, produces the EX result. */
+  readonly fpuOp: FpuOp | null;
+  readonly csr: 'RW' | 'RS' | 'RC' | null;
+  readonly csrImm: boolean;
 }
 
 export const BUBBLE_CONTROL: Control = {
   valid: false, regWrite: false, aluSrcA: 'REG', aluSrcB: 'REG', aluOp: 'ADD',
   memRead: null, memWrite: null, wbSrc: 'NONE', branch: null, jump: null, system: null,
+  fpuOp: null, csr: null, csrImm: false,
 };
 
 export function control(d: Decoded): Control {
@@ -30,7 +38,7 @@ export function control(d: Decoded): Control {
   if (!def) return BUBBLE_CONTROL;
   return {
     valid: true,
-    regWrite: def.regWrite && d.rd !== 0,
+    regWrite: def.regWrite && rdWritable(d),
     aluSrcA: def.aluSrcA,
     aluSrcB: def.aluSrcB,
     aluOp: def.alu,
@@ -40,6 +48,9 @@ export function control(d: Decoded): Control {
     branch: def.branch ?? null,
     jump: def.jump ?? null,
     system: def.system ?? null,
+    fpuOp: def.fpu ?? null,
+    csr: def.csr ?? null,
+    csrImm: def.csrImm ?? false,
   };
 }
 

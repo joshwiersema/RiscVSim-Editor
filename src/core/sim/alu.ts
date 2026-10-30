@@ -37,6 +37,7 @@ export function alu(op: AluOp, a: number, b: number): number {
     }
     case 'REMU': return b === 0 ? toS(a) : toS(toU(a) % toU(b));
     case 'COPY_B': return b | 0;
+    case 'FPU': throw new Error('floating-point operations run on the FPU, not the integer ALU');
   }
 }
 
@@ -56,7 +57,7 @@ export function aluSymbol(op: AluOp): string {
   const map: Record<AluOp, string> = {
     ADD: '+', SUB: '-', AND: '&', OR: '|', XOR: '^', SLL: '<<', SRL: '>>>', SRA: '>>',
     SLT: '<', SLTU: '<u', MUL: '*', MULH: '*h', MULHSU: '*hsu', MULHU: '*hu',
-    DIV: '/', DIVU: '/u', REM: '%', REMU: '%u', COPY_B: 'pass',
+    DIV: '/', DIVU: '/u', REM: '%', REMU: '%u', COPY_B: 'pass', FPU: 'fpu',
   };
   return map[op];
 }

@@ -85,22 +85,23 @@ CPI/IPC, stall and flush counts, pipeline utilisation, instruction mix by catego
 
 ## Features
 
-- **Two processors.** Single-cycle RV32IMC, and a five-stage in-order pipeline (IF, ID, EX, MEM, WB) with EX/MEM and MEM/WB forwarding, a load-use hazard unit, branches resolved in EX with a two-instruction flush, and precise-trap handling for `ecall`. Forwarding and hazard detection can be switched off live to watch results go wrong.
+- **Two processors.** Single-cycle RV32IMFC, and a five-stage in-order pipeline (IF, ID, EX, MEM, WB) with EX/MEM and MEM/WB forwarding, a load-use hazard unit, branches resolved in EX with a two-instruction flush, and precise-trap handling for `ecall`. Forwarding and hazard detection can be switched off live to watch results go wrong.
 - **Explain-on-hover datapath.** Every element of both diagrams has a contextual explanation ("ALUSrc=1 because `addi` carries an immediate", "ForwardA selects EX/MEM because the `add` one ahead is about to write t1 = 6").
 - **Walk mode.** Reveal a cycle one stage at a time, dimming what hasn't happened yet and animating the wires of the stage that just did. Auto-play by cycles or by stages, from 0.5 to 30 steps per second.
 - **This-cycle narration.** Five stage cards describe what IF/ID/EX/MEM/WB did, with hazard banners naming the instructions involved.
 - **Reverse execution** of every cycle, including memory, device, and cache state.
 - **Pipeline diagram** with stall bubbles and flushed instructions.
+- **Floating point (RV32F).** All single-precision instructions — arithmetic, `fsqrt`, fused multiply-add, sign injection, compares, `fclass`, conversions, `flw`/`fsw` (and their compressed forms) — plus Zicsr for `fcsr`/`frm`/`fflags`. Results are bit-exact IEEE-754 under all five rounding modes, with precise exception flags. FP values flow through the same datapath (the ALU block becomes the FPU, the register file gains an f bank), forward and stall in the pipeline like integer ones, and are explained on hover. The **Float** view shows f0–f31, the fcsr (rounding mode and sticky NV/DZ/OF/UF/NX flags, highlighting the ones just raised), and a sign/exponent/fraction breakdown of any register. `.float` data, `print_float`/`read_float` syscalls, and FP pseudo-instructions (`fmv.s`, `fneg.s`, `fabs.s`, `fsrm`, `frflags`, …) are supported.
 - **RV32C compressed instructions.** Explicit `c.*` mnemonics, an auto-compress option with branch relaxation, a decompressor block in IF, and the +2/+4 PC increment mux.
 - **L1 instruction and data caches.** Sets, ways, block size, LRU/FIFO/random replacement, write-back/write-through, write-allocate; hit/miss statistics, evictions, write-backs, a live view of every line, and a tag/index/offset breakdown of the last access.
 - **Memory-mapped I/O.** A 16×16 RGB LED matrix, eight switches, a d-pad, a character output device, and a cycle counter, all at documented addresses.
 - **Console input** syscalls (`read_int`, `read_string`, `read_char`) that block the program until you type into the console.
-- **C programs.** Switch the editor to C, press Compile, and RiscSim runs your installed RISC-V GCC with its own start-up file, linker script, and `riscsim.h`, then loads the ELF. File › Load ELF opens any rv32 ELF built elsewhere.
+- **C programs.** Switch the editor to C, press Compile, and RiscSim runs your installed RISC-V GCC with its own start-up file, linker script, and `riscsim.h`, then loads the ELF. Code is compiled hard-float (`-march=rv32imfc -mabi=ilp32f`), so `float` arithmetic runs on the simulated FPU; `riscsim.h` provides `print_float`/`read_float`. File › Load ELF opens any rv32 ELF built elsewhere.
 - **Editor** with RISC-V and C highlighting, breakpoints, per-stage line markers, assembler errors, file open/save, recent files, and dark mode.
 - **Inspector** with a colour-coded bit-field breakdown of the instruction in flight; registers with read/write highlighting; memory dump with data labels and last-access highlighting.
-- **Workbench layout.** An activity rail on the left opens a side panel for each part of the machine (editor, program listing, memory, caches, I/O devices, console, statistics, ISA reference; `Ctrl+1`…`Ctrl+8`, `Ctrl+B` to hide) while registers and memory stay on the right; a status bar shows run state, cycle, PC, next instruction, CPI, and cache hit rates at all times. Light and dark themes.
+- **Workbench layout.** An activity rail on the left opens a side panel for each part of the machine (editor, program listing, memory, floating-point registers, caches, I/O devices, console, statistics, ISA reference; `Ctrl+1`…`Ctrl+9`, `Ctrl+B` to hide) while registers and memory stay on the right; a status bar shows run state, cycle, PC, next instruction, CPI, and cache hit rates at all times. Light and dark themes.
 - **Statistics** for the whole run: CPI/IPC, stall and flush counts, pipeline utilisation, instruction mix by category, branch-taken rate, memory traffic, and per-cache hit rates.
-- **Reference panel**: searchable RV32IM instruction table, register ABI roles and calling convention, syscalls, memory map, device addresses, directives, pseudo-instructions, and RV32C mnemonics.
+- **Reference panel**: searchable RV32IMF + Zicsr instruction table, integer and FP register ABI roles and calling convention, CSRs, rounding modes, exception flags, syscalls, memory map, device addresses, directives, pseudo-instructions, and RV32C mnemonics.
 
 ## Using the simulator
 
@@ -121,7 +122,7 @@ CPI/IPC, stall and flush counts, pipeline utilisation, instruction mix by catego
 | `R` | Reset |
 | Ctrl+Enter | Assemble / compile |
 | Ctrl+O, Ctrl+S | Open / save |
-| `Ctrl+1`…`Ctrl+8` | Side panels (`Ctrl+B` hides them) |
+| `Ctrl+1`…`Ctrl+9` | Side panels (`Ctrl+B` hides them) |
 | Ctrl+wheel, drag | Zoom / pan the datapath |
 | Esc | Unpin, pause |
 

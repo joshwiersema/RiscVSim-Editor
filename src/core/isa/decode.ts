@@ -1,6 +1,8 @@
 import { INSTRUCTIONS, OPCODES, type InstrDef, type Format } from './instructions';
-import { regName } from './registers';
 import { expandCompressed } from './compressed';
+import { csrName } from './csr';
+import { operandName } from './operands';
+import { RM_MNEMONICS } from '../fp/format';
 
 /** Bit-level view of a 32-bit instruction word plus the matching definition. */
 export interface Decoded {
@@ -15,6 +17,8 @@ export interface Decoded {
   readonly rd: number;
   readonly rs1: number;
   readonly rs2: number;
+  /** Third source register (R4 fused multiply-add), bits 31:27. */
+  readonly rs3: number;
   readonly funct3: number;
   readonly funct7: number;
   /** Sign-extended immediate for the instruction's format (0 for R-type). */
@@ -41,7 +45,7 @@ export function extractImm(word: number, format: Format): number {
     case 'B': return signExtend((bits(word, 31, 31) << 12) | (bits(word, 7, 7) << 11) | (bits(word, 30, 25) << 5) | (bits(word, 11, 8) << 1), 13);
     case 'U': return (word & 0xfffff000) | 0;
     case 'J': return signExtend((bits(word, 31, 31) << 20) | (bits(word, 19, 12) << 12) | (bits(word, 20, 20) << 11) | (bits(word, 30, 21) << 1), 21);
-    case 'R': return 0;
+    case 'R': case 'R4': return 0;
   }
 }
 
@@ -54,6 +58,9 @@ function matchDef(word: number): InstrDef | null {
     if (def.opcode !== opcode) continue;
     if (def.funct3 !== undefined && def.funct3 !== funct3) continue;
     if (def.funct7 !== undefined && def.funct7 !== funct7) continue;
+    if (def.rs2Sel !== undefined && def.rs2Sel !== bits(word, 24, 20)) continue;
+    if (def.rm && (funct3 === 5 || funct3 === 6)) continue; // reserved rounding modes
+    if (def.format === 'R4' && bits(word, 26, 25) !== 0) continue; // fmt must be single precision
     if (def.system === 'ECALL' && imm12 !== 0) continue;
     if (def.system === 'EBREAK' && imm12 !== 1) continue;
     return def;
@@ -74,21 +81,12 @@ export function decode(word: number, compressed: Decoded['compressed'] = null): 
     rd: bits(w, 11, 7),
     rs1: bits(w, 19, 15),
     rs2: bits(w, 24, 20),
+    rs3: bits(w, 31, 27),
     funct3: bits(w, 14, 12),
     funct7: bits(w, 31, 25),
     imm: format ? extractImm(w, format) : 0,
     format,
   };
-}
-
-/** Whether this decoded instruction reads rs1 / rs2 (for hazard logic). */
-export function usesRs1(d: Decoded): boolean {
-  if (!d.def) return false;
-  return d.def.format !== 'U' && d.def.format !== 'J' && !d.def.system;
-}
-export function usesRs2(d: Decoded): boolean {
-  if (!d.def) return false;
-  return d.def.format === 'R' || d.def.format === 'S' || d.def.format === 'B';
 }
 
 /** Render a decoded instruction as canonical assembly text. */
@@ -103,7 +101,9 @@ function disassembleExpanded(d: Decoded, pc?: number, labelFor?: (addr: number) 
   const def = d.def;
   if (!def) return d.compressed ? `.half 0x${d.compressed.half.toString(16).padStart(4, '0')}` : `.word 0x${d.word.toString(16).padStart(8, '0')}`;
   if (d.word === NOP_WORD) return 'nop';
-  const rd = regName(d.rd), rs1 = regName(d.rs1), rs2 = regName(d.rs2);
+  const rd = operandName(d, 'rd'), rs1 = operandName(d, 'rs1'), rs2 = operandName(d, 'rs2');
+  // Show the rounding mode only when it is not the default (dynamic).
+  const rm = def.rm && d.funct3 !== 7 ? `, ${RM_MNEMONICS[d.funct3]}` : '';
   const target = (offset: number): string => {
     if (pc === undefined) return String(offset);
     const addr = (pc + offset) >>> 0;
@@ -111,9 +111,13 @@ function disassembleExpanded(d: Decoded, pc?: number, labelFor?: (addr: number) 
     return label ? `${label}` : `0x${addr.toString(16)}`;
   };
   switch (def.format) {
-    case 'R': return `${def.name} ${rd}, ${rs1}, ${rs2}`;
+    case 'R':
+      if (def.rs2Sel !== undefined) return `${def.name} ${rd}, ${rs1}${rm}`;
+      return `${def.name} ${rd}, ${rs1}, ${rs2}${rm}`;
+    case 'R4': return `${def.name} ${rd}, ${rs1}, ${rs2}, ${operandName(d, 'rs3')}${rm}`;
     case 'I':
       if (def.system) return def.name;
+      if (def.csr) return `${def.name} ${rd}, ${csrName(d.imm)}, ${def.csrImm ? d.rs1 : rs1}`;
       if (def.memRead) return `${def.name} ${rd}, ${d.imm}(${rs1})`;
       if (def.jump === 'JALR') return `${def.name} ${rd}, ${d.imm}(${rs1})`;
       if (def.name === 'slli' || def.name === 'srli' || def.name === 'srai') return `${def.name} ${rd}, ${rs1}, ${d.imm & 0x1f}`;

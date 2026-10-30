@@ -1,6 +1,9 @@
 import { INSTR_BY_NAME, type InstrDef } from '../isa/instructions';
-import { parseRegister } from '../isa/registers';
-import { encode } from '../isa/encode';
+import { parseFpRegister, parseRegister } from '../isa/registers';
+import { encode, type Operands } from '../isa/encode';
+import { csrNumber } from '../isa/csr';
+import { regFile, type RegOperand } from '../isa/operands';
+import { floatToBits, RM_MNEMONICS } from '../fp/format';
 import { compressWord, lowerCompressedMnemonic } from '../isa/compressed';
 import type { AsmError, Program, Segment, TextWord } from '../program';
 import { lexLine, parseStringLiteral } from './lexer';
@@ -53,73 +56,116 @@ function parseMemOperand(tok: string): { offset: string; base: string } | null {
   return { offset: m[1].trim() || '0', base: m[2] };
 }
 
-function reg(tok: string): number {
-  const r = parseRegister(tok.trim());
-  if (r === null) throw new ExprError(`unknown register '${tok.trim()}'`);
-  return r;
+type Lookup = (s: string) => number | undefined;
+
+/** Parse a register operand from the file (x or f) the instruction expects there. */
+function reg(def: InstrDef, op: RegOperand, tok: string): number {
+  const t = tok.trim();
+  const wantFp = regFile(def, op) === 'F';
+  const r = wantFp ? parseFpRegister(t) : parseRegister(t);
+  if (r !== null) return r;
+  const other = wantFp ? parseRegister(t) : parseFpRegister(t);
+  if (other !== null) throw new ExprError(`${def.name} needs ${wantFp ? 'a floating-point' : 'an integer'} register for ${op}, got '${t}'`);
+  throw new ExprError(`unknown ${wantFp ? 'floating-point ' : ''}register '${t}'`);
 }
 
 function checkRange(value: number, lo: number, hi: number, what: string): void {
   if (value < lo || value > hi) throw new ExprError(`${what} ${value} out of range [${lo}, ${hi}]`);
 }
 
+function want(def: InstrDef, ops: readonly string[], n: number): void {
+  if (ops.length !== n) throw new ExprError(`${def.name} expects ${n} operand${n === 1 ? '' : 's'}, got ${ops.length}`);
+}
+
+/** Split off an optional trailing rounding-mode operand (rne, rtz, rdn, rup, rmm, dyn). */
+function withRm(def: InstrDef, ops: readonly string[], regs: number): { regs: readonly string[]; rm?: number } {
+  if (!def.rm || ops.length !== regs + 1) { want(def, ops, regs); return { regs: ops }; }
+  const tok = ops[regs].trim().toLowerCase();
+  const rm = tok ? RM_MNEMONICS.indexOf(tok) : -1;
+  if (rm < 0) throw new ExprError(`unknown rounding mode '${ops[regs]}' (use rne, rtz, rdn, rup, rmm, or dyn)`);
+  return { regs: ops.slice(0, regs), rm };
+}
+
+function csrOperands(def: InstrDef, ops: readonly string[], ev: (s: string) => number): Operands {
+  want(def, ops, 3);
+  const csr = csrNumber(ops[1].trim()) ?? ev(ops[1]);
+  checkRange(csr, 0, 0xfff, 'CSR number');
+  if (!def.csrImm) return { rd: reg(def, 'rd', ops[0]), imm: csr, rs1: reg(def, 'rs1', ops[2]) };
+  const uimm = ev(ops[2]);
+  checkRange(uimm, 0, 31, 'CSR immediate');
+  return { rd: reg(def, 'rd', ops[0]), imm: csr, rs1: uimm };
+}
+
+function memOperands(def: InstrDef, ops: readonly string[], ev: (s: string) => number, dataOp: RegOperand): Operands {
+  if (ops.length === 3 && dataOp === 'rd') {
+    const imm = ev(ops[1]); checkRange(imm, -2048, 2047, 'offset');
+    return { rd: reg(def, 'rd', ops[0]), rs1: reg(def, 'rs1', ops[2]), imm };
+  }
+  want(def, ops, 2);
+  const mem = parseMemOperand(ops[1]);
+  if (!mem) throw new ExprError(`expected offset(base), got '${ops[1]}'`);
+  const imm = ev(mem.offset); checkRange(imm, -2048, 2047, 'offset');
+  return { [dataOp]: reg(def, dataOp, ops[0]), rs1: reg(def, 'rs1', mem.base), imm };
+}
+
+function iOperands(def: InstrDef, ops: readonly string[], ev: (s: string) => number): Operands {
+  if (def.system) { want(def, ops, 0); return {}; }
+  if (def.csr) return csrOperands(def, ops, ev);
+  if (def.memRead || def.jump === 'JALR') return memOperands(def, ops, ev, 'rd');
+  want(def, ops, 3);
+  const imm = ev(ops[2]);
+  if (def.funct7 !== undefined) checkRange(imm, 0, 31, 'shift amount');
+  else checkRange(imm, -2048, 2047, 'immediate');
+  return { rd: reg(def, 'rd', ops[0]), rs1: reg(def, 'rs1', ops[1]), imm };
+}
+
 /** Build encoder operands for a real instruction from its operand strings. */
-function operandsFor(def: InstrDef, ops: readonly string[], pc: number, anchorPc: number, lookup: (s: string) => number | undefined) {
+function operandsFor(def: InstrDef, ops: readonly string[], pc: number, anchorPc: number, lookup: Lookup): Operands {
   const ev = (s: string) => evalExpr(s, lookup, anchorPc);
-  const want = (n: number) => {
-    if (ops.length !== n) throw new ExprError(`${def.name} expects ${n} operand${n === 1 ? '' : 's'}, got ${ops.length}`);
-  };
   switch (def.format) {
-    case 'R': want(3); return { rd: reg(ops[0]), rs1: reg(ops[1]), rs2: reg(ops[2]) };
-    case 'I': {
-      if (def.system) { want(0); return {}; }
-      if (def.memRead || def.jump === 'JALR') {
-        if (ops.length === 3) {
-          const imm = ev(ops[1]); checkRange(imm, -2048, 2047, 'offset');
-          return { rd: reg(ops[0]), rs1: reg(ops[2]), imm };
-        }
-        want(2);
-        const mem = parseMemOperand(ops[1]);
-        if (!mem) throw new ExprError(`expected offset(base), got '${ops[1]}'`);
-        const imm = ev(mem.offset); checkRange(imm, -2048, 2047, 'offset');
-        return { rd: reg(ops[0]), rs1: reg(mem.base), imm };
-      }
-      want(3);
-      const imm = ev(ops[2]);
-      if (def.funct7 !== undefined) checkRange(imm, 0, 31, 'shift amount');
-      else checkRange(imm, -2048, 2047, 'immediate');
-      return { rd: reg(ops[0]), rs1: reg(ops[1]), imm };
+    case 'R': {
+      const unary = def.rs2Sel !== undefined;
+      const { regs, rm } = withRm(def, ops, unary ? 2 : 3);
+      const base = { rd: reg(def, 'rd', regs[0]), rs1: reg(def, 'rs1', regs[1]), rm };
+      return unary ? base : { ...base, rs2: reg(def, 'rs2', regs[2]) };
     }
-    case 'S': {
-      want(2);
-      const mem = parseMemOperand(ops[1]);
-      if (!mem) throw new ExprError(`expected offset(base), got '${ops[1]}'`);
-      const imm = ev(mem.offset); checkRange(imm, -2048, 2047, 'offset');
-      return { rs2: reg(ops[0]), rs1: reg(mem.base), imm };
+    case 'R4': {
+      const { regs, rm } = withRm(def, ops, 4);
+      return { rd: reg(def, 'rd', regs[0]), rs1: reg(def, 'rs1', regs[1]), rs2: reg(def, 'rs2', regs[2]), rs3: reg(def, 'rs3', regs[3]), rm };
     }
+    case 'I': return iOperands(def, ops, ev);
+    case 'S': return memOperands(def, ops, ev, 'rs2');
     case 'B': {
-      want(3);
-      const target = ev(ops[2]);
-      const imm = target - pc;
+      want(def, ops, 3);
+      const imm = ev(ops[2]) - pc;
       if (imm & 1) throw new ExprError('branch target is not 2-byte aligned');
       checkRange(imm, -4096, 4095, 'branch offset');
-      return { rs1: reg(ops[0]), rs2: reg(ops[1]), imm };
+      return { rs1: reg(def, 'rs1', ops[0]), rs2: reg(def, 'rs2', ops[1]), imm };
     }
     case 'U': {
-      want(2);
+      want(def, ops, 2);
       const imm = ev(ops[1]);
       checkRange(imm, 0, 0xfffff, 'upper immediate');
-      return { rd: reg(ops[0]), imm: imm << 12 };
+      return { rd: reg(def, 'rd', ops[0]), imm: imm << 12 };
     }
     case 'J': {
-      want(2);
-      const target = ev(ops[1]);
-      const imm = target - pc;
+      want(def, ops, 2);
+      const imm = ev(ops[1]) - pc;
       if (imm & 1) throw new ExprError('jump target is not 2-byte aligned');
       checkRange(imm, -(1 << 20), (1 << 20) - 1, 'jump offset');
-      return { rd: reg(ops[0]), imm };
+      return { rd: reg(def, 'rd', ops[0]), imm };
     }
   }
+}
+
+/** Parse a .float operand: a decimal/hex number, inf, or nan. */
+export function parseFloatLiteral(tok: string): number {
+  const t = tok.trim().toLowerCase();
+  const special: Record<string, number> = { inf: Infinity, '+inf': Infinity, '-inf': -Infinity, infinity: Infinity, '-infinity': -Infinity, nan: Number.NaN };
+  if (t in special) return floatToBits(special[t]);
+  const n = t === '' ? Number.NaN : Number(t);
+  if (Number.isNaN(n)) throw new ExprError(`bad floating-point literal '${tok.trim()}'`);
+  return floatToBits(n);
 }
 
 /* ----------------------------------------------------------------- assemble */
@@ -329,6 +375,13 @@ function handleDirective(ctx: DirectiveCtx): { section?: Section; textAlign?: nu
     case '.space': case '.zero': case '.skip': {
       const n = evalExpr(operands[0] ?? '0', constLookup);
       emit(new Uint8Array(n));
+      return {};
+    }
+    case '.float': case '.single': {
+      for (const o of operands) {
+        const bits = parseFloatLiteral(o);
+        emit(Uint8Array.from([0, 8, 16, 24].map((sh) => (bits >>> sh) & 0xff)));
+      }
       return {};
     }
     case '.ascii': case '.asciz': case '.string': {

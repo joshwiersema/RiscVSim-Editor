@@ -58,7 +58,7 @@ describe('summarize', () => {
     const m = run(model);
     const s = summarize(m.traces, m.core.stats);
     expect(s.instructions).toBe(10);
-    expect(s.mix).toEqual({ arith: 2, logic: 1, shift: 1, muldiv: 1, load: 1, store: 1, branch: 1, jump: 1, system: 1, other: 0 });
+    expect(s.mix).toEqual({ arith: 2, logic: 1, shift: 1, muldiv: 1, float: 0, load: 1, store: 1, branch: 1, jump: 1, system: 1, other: 0 });
     expect(s.branches).toEqual({ total: 1, taken: 1 });
     expect(s.loads).toBe(1);
     expect(s.stores).toBe(1);

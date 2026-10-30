@@ -42,3 +42,44 @@ export function parseRegister(token: string): number | null {
 export function regName(index: number): string {
   return ABI_NAMES[index] ?? `x${index}`;
 }
+
+/** Floating-point register ABI names (f0..f31). */
+export const FP_ABI_NAMES: readonly string[] = [
+  'ft0', 'ft1', 'ft2', 'ft3', 'ft4', 'ft5', 'ft6', 'ft7',
+  'fs0', 'fs1', 'fa0', 'fa1', 'fa2', 'fa3', 'fa4', 'fa5',
+  'fa6', 'fa7', 'fs2', 'fs3', 'fs4', 'fs5', 'fs6', 'fs7',
+  'fs8', 'fs9', 'fs10', 'fs11', 'ft8', 'ft9', 'ft10', 'ft11',
+];
+
+export function fpRegisterRole(index: number): string {
+  if (index >= 10 && index <= 17) return index <= 11 ? `FP argument ${index - 10} / FP return value ${index - 10}.` : `FP argument ${index - 10}.`;
+  const name = FP_ABI_NAMES[index] ?? '';
+  return name.startsWith('fs') ? 'FP saved register (callee-saved).' : 'FP temporary (caller-saved).';
+}
+
+/** Resolve an FP register token (f5, ft5, fa0, ...) to its index, or null if invalid. */
+export function parseFpRegister(token: string): number | null {
+  const t = token.toLowerCase();
+  const abi = FP_ABI_NAMES.indexOf(t);
+  if (abi >= 0) return abi;
+  const m = /^f(\d{1,2})$/.exec(t);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return n >= 0 && n < 32 ? n : null;
+}
+
+export function fpRegName(index: number): string {
+  return FP_ABI_NAMES[index] ?? `f${index}`;
+}
+
+/**
+ * The simulator keeps both register files in one array: x0..x31 at 0..31 and
+ * f0..f31 at 32..63, so hazard and forwarding logic can compare plain indices.
+ */
+export const FP_REG_BASE = 32;
+export const REG_COUNT = 64;
+
+/** ABI name of a unified register index. */
+export function unifiedRegName(index: number): string {
+  return index >= FP_REG_BASE ? fpRegName(index - FP_REG_BASE) : regName(index);
+}

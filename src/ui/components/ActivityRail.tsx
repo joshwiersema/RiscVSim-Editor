@@ -8,11 +8,12 @@ export const RAIL_ITEMS: readonly RailItem[] = [
   { id: 'editor', icon: 'code', label: 'Editor', hint: 'Source editor (Ctrl+1)' },
   { id: 'program', icon: 'list', label: 'Program', hint: 'Assembled listing with breakpoints (Ctrl+2)' },
   { id: 'memory', icon: 'memory', label: 'Memory', hint: 'Memory dump (Ctrl+3)' },
-  { id: 'cache', icon: 'cache', label: 'Cache', hint: 'L1 instruction and data caches (Ctrl+4)' },
-  { id: 'io', icon: 'io', label: 'I/O', hint: 'Memory-mapped devices (Ctrl+5)' },
-  { id: 'console', icon: 'terminal', label: 'Console', hint: 'Program output and input (Ctrl+6)' },
-  { id: 'stats', icon: 'chart', label: 'Statistics', hint: 'Run statistics and instruction mix (Ctrl+7)' },
-  { id: 'reference', icon: 'book', label: 'Reference', hint: 'ISA, registers, syscalls, memory map (Ctrl+8)' },
+  { id: 'float', icon: 'float', label: 'Float', hint: 'Floating-point registers, fcsr flags, IEEE-754 bits (Ctrl+4)' },
+  { id: 'cache', icon: 'cache', label: 'Cache', hint: 'L1 instruction and data caches (Ctrl+5)' },
+  { id: 'io', icon: 'io', label: 'I/O', hint: 'Memory-mapped devices (Ctrl+6)' },
+  { id: 'console', icon: 'terminal', label: 'Console', hint: 'Program output and input (Ctrl+7)' },
+  { id: 'stats', icon: 'chart', label: 'Statistics', hint: 'Run statistics and instruction mix (Ctrl+8)' },
+  { id: 'reference', icon: 'book', label: 'Reference', hint: 'ISA, registers, syscalls, memory map (Ctrl+9)' },
 ];
 
 /** Vertical icon bar on the left edge; picks which view the side panel shows. */

@@ -16,7 +16,7 @@ const SHORTCUTS: readonly [string, string][] = [
   ['R', 'Reset the simulation'],
   ['Ctrl+Enter', 'Assemble (or compile C)'],
   ['Ctrl+B', 'Show / hide the side panel'],
-  ['Ctrl+1 … Ctrl+8', 'Side panel: Editor, Program, Memory, Cache, I/O, Console, Statistics, Reference'],
+  ['Ctrl+1 … Ctrl+9', 'Side panel: Editor, Program, Memory, Float, Cache, I/O, Console, Statistics, Reference'],
   ['Ctrl+O / Ctrl+S', 'Open / save the source file'],
   ['Ctrl+wheel', 'Zoom the datapath (drag to pan)'],
   ['Esc', 'Unpin explanation / pause'],

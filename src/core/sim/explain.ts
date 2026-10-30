@@ -1,5 +1,7 @@
-import { regName } from '../isa/registers';
+import { operandName, regFile, usesRs1, usesRs2, usesRs3 } from '../isa/operands';
+import { csrName } from '../isa/csr';
 import { aluSymbol } from './alu';
+import { csrSentence, fmtOperand, fpuExpression, fpuWhy } from './describe';
 import type { InstrTrace, StageSlot, HazardInfo } from './types';
 import { hex32 } from '../util/format';
 
@@ -26,12 +28,19 @@ export interface ExplainCtx {
 const dec = (v: number) => String(v | 0);
 const both = (v: number) => `${hex32(v)} (${dec(v)})`;
 const name = (t: InstrTrace) => `\`${t.instr.def?.name ?? '?'}\``;
-const rd = (t: InstrTrace) => regName(t.instr.rd);
-const rs1 = (t: InstrTrace) => regName(t.instr.rs1);
-const rs2 = (t: InstrTrace) => regName(t.instr.rs2);
+const rd = (t: InstrTrace) => operandName(t.instr, 'rd');
+const rs1 = (t: InstrTrace) => operandName(t.instr, 'rs1');
+const rs2 = (t: InstrTrace) => operandName(t.instr, 'rs2');
+const rs3 = (t: InstrTrace) => operandName(t.instr, 'rs3');
+const isFpu = (t: InstrTrace) => t.ctrl.fpuOp !== null;
+/** Operand values: f registers are shown as bits plus the float they encode. */
+const v1 = (t: InstrTrace, v: number) => fmtOperand(t, 'rs1', v);
+const v2 = (t: InstrTrace, v: number) => fmtOperand(t, 'rs2', v);
+const vd = (t: InstrTrace, v: number) => fmtOperand(t, 'rd', v);
+const hasImm = (t: InstrTrace) => t.instr.format !== null && t.instr.format !== 'R' && t.instr.format !== 'R4';
 
 const FORMAT_WORDS: Record<string, string> = {
-  R: 'R-type (register-register)', I: 'I-type (register-immediate)', S: 'S-type (store)',
+  R: 'R-type (register-register)', R4: 'R4-type (three source registers)', I: 'I-type (register-immediate)', S: 'S-type (store)',
   B: 'B-type (branch)', U: 'U-type (upper immediate)', J: 'J-type (jump)',
 };
 
@@ -47,6 +56,7 @@ function wbSrcWord(t: InstrTrace): string {
     case 'ALU': return 'the ALU result';
     case 'MEM': return 'the data read from memory';
     case 'PC4': return 'PC+4 (the return address)';
+    case 'CSR': return `the old value of ${csrName(t.imm)}`;
     case 'NONE': return 'nothing';
   }
 }
@@ -107,30 +117,30 @@ const RULES: Record<string, Rule> = {
   // ---------------------------------------------------------------- ID ----
   control: (t) => ({
     title: 'Control unit', value: `${t.instr.def?.name ?? '?'} (opcode ${t.instr.opcode.toString(2).padStart(7, '0')})`, kind: 'component', active: true,
-    why: `Decodes the opcode (and funct3/funct7) into control signals. For ${name(t)}: RegWrite=${+t.ctrl.regWrite}, ALUSrcB=${t.ctrl.aluSrcB}, ALUOp=${t.ctrl.aluOp}, MemRead=${t.ctrl.memRead ? 1 : 0}, MemWrite=${t.ctrl.memWrite ? 1 : 0}, MemToReg=${t.ctrl.wbSrc}, Branch=${t.ctrl.branch ? 1 : 0}, Jump=${t.ctrl.jump ? 1 : 0}.`,
+    why: `Decodes the opcode (and funct3/funct7) into control signals. For ${name(t)}: RegWrite=${+t.ctrl.regWrite}, ALUSrcB=${t.ctrl.aluSrcB}, ALUOp=${t.ctrl.aluOp}, MemRead=${t.ctrl.memRead ? 1 : 0}, MemWrite=${t.ctrl.memWrite ? 1 : 0}, MemToReg=${t.ctrl.wbSrc}, Branch=${t.ctrl.branch ? 1 : 0}, Jump=${t.ctrl.jump ? 1 : 0}${t.ctrl.fpuOp ? `, FPUOp=${t.ctrl.fpuOp}` : ''}${t.ctrl.csr ? `, CSROp=${t.ctrl.csr}` : ''}.`,
   }),
   regfile: (t) => ({
-    title: 'Register file', value: `${rs1(t)}=${both(t.rs1Val)}, ${rs2(t)}=${both(t.rs2Val)}`, kind: 'component', active: true,
-    why: `32 registers with two read ports and one write port. This cycle it reads ${rs1(t)} (rs1=${t.instr.rs1}) and ${rs2(t)} (rs2=${t.instr.rs2}). ${t.ctrl.regWrite ? `RegWrite is asserted, so ${rd(t)} will be written with ${wbSrcWord(t)} = ${both(t.wbValue)} at the clock edge.` : `RegWrite is 0: ${name(t)} does not write a register${t.instr.rd === 0 && t.instr.def?.regWrite ? ' (rd is x0, which is hard-wired to zero)' : ''}.`}`,
+    title: 'Register file', value: `${rs1(t)}=${v1(t, t.rs1Val)}, ${rs2(t)}=${v2(t, t.rs2Val)}`, kind: 'component', active: true,
+    why: `${regfileIntro(t)} This cycle it reads ${rs1(t)} (rs1=${t.instr.rs1}) and ${rs2(t)} (rs2=${t.instr.rs2})${usesRs3(t.instr) ? `, plus ${rs3(t)} (rs3=${t.instr.rs3}) through a third read port = ${fmtOperand(t, 'rs3', t.rs3Val)}` : ''}. ${t.ctrl.regWrite ? `RegWrite is asserted, so ${rd(t)} will be written with ${wbSrcWord(t)} = ${vd(t, t.wbValue)} at the clock edge.` : `RegWrite is 0: ${name(t)} does not write a register${t.instr.rd === 0 && t.instr.def?.regWrite ? ' (rd is x0, which is hard-wired to zero)' : ''}.`}`,
   }),
   immgen: (t) => {
     const f = t.instr.format;
-    const active = f !== 'R' && f !== null;
+    const active = hasImm(t);
     return {
       title: 'Immediate generator', value: active ? both(t.imm) : 'unused', kind: 'component', active,
       why: active
-        ? `Extracts and sign-extends the immediate from the ${f}-type layout of ${name(t)}. ${immSourceBits(f)} The result is ${both(t.imm)}.`
-        : `${name(t)} is R-type: both operands come from registers, so no immediate is encoded and this output is ignored.`,
+        ? `Extracts and sign-extends the immediate from the ${f}-type layout of ${name(t)}. ${immSourceBits(f)} The result is ${both(t.imm)}${t.ctrl.csr ? `, whose low 12 bits name the CSR (${csrName(t.imm)})` : ''}.`
+        : `${name(t)} is ${f}-type: all operands come from registers, so no immediate is encoded and this output is ignored.`,
     };
   },
   'w.rs1val': (t, ctx) => usesA(t)
-    ? { title: `Read data 1 (${rs1(t)})`, value: both(t.rs1Val), kind: 'data', active: true, why: `${name(t)} reads its first source operand from ${rs1(t)}. The register file outputs ${both(t.rs1Val)}${ctx.model === 'pipeline' && t.fwdA !== 'NONE' ? ', but this value is stale: the forwarding mux will override it with the newer in-flight result.' : '.'}` }
+    ? { title: `Read data 1 (${rs1(t)})`, value: v1(t, t.rs1Val), kind: 'data', active: true, why: `${name(t)} reads its first source operand from ${rs1(t)}. The register file outputs ${v1(t, t.rs1Val)}${ctx.model === 'pipeline' && t.fwdA !== 'NONE' ? ', but this value is stale: the forwarding mux will override it with the newer in-flight result.' : '.'}` }
     : { title: 'Read data 1', value: both(t.rs1Val), kind: 'data', active: false, why: `${name(t)} does not use rs1 (${t.instr.format}-type encodes no rs1 field or it is unused), so this value is ignored.` },
   'w.rs2val': (t, ctx) => usesB(t)
-    ? { title: `Read data 2 (${rs2(t)})`, value: both(t.rs2Val), kind: 'data', active: true, why: `${name(t)} reads its second source operand from ${rs2(t)}: ${both(t.rs2Val)}. ${t.ctrl.memWrite ? 'For a store this is the data to be written to memory.' : t.ctrl.branch ? 'For a branch this is compared with rs1.' : ''}${ctx.model === 'pipeline' && t.fwdB !== 'NONE' ? ' The forwarding mux will override it with the newer in-flight result.' : ''}` }
-    : { title: 'Read data 2', value: both(t.rs2Val), kind: 'data', active: false, why: `${name(t)} does not use rs2: its second operand is ${t.ctrl.aluSrcB === 'IMM' ? 'the immediate' : 'not needed'}. The register file still reads a value, but nothing consumes it.` },
+    ? { title: `Read data 2 (${rs2(t)})`, value: v2(t, t.rs2Val), kind: 'data', active: true, why: `${name(t)} reads its second source operand from ${rs2(t)}: ${v2(t, t.rs2Val)}. ${t.ctrl.memWrite ? 'For a store this is the data to be written to memory.' : t.ctrl.branch ? 'For a branch this is compared with rs1.' : ''}${ctx.model === 'pipeline' && t.fwdB !== 'NONE' ? ' The forwarding mux will override it with the newer in-flight result.' : ''}` }
+    : { title: 'Read data 2', value: both(t.rs2Val), kind: 'data', active: false, why: `${name(t)} does not use rs2: its second operand is ${t.ctrl.aluSrcB === 'IMM' ? 'the immediate' : t.instr.def?.rs2Sel !== undefined ? `not needed (the rs2 field, ${t.instr.rs2}, selects the operation variant)` : 'not needed'}. The register file still reads a value, but nothing consumes it.` },
   'w.imm': (t) => {
-    const active = t.instr.format !== 'R' && t.instr.format !== null;
+    const active = hasImm(t);
     return { title: 'Immediate', value: both(t.imm), kind: 'data', active, why: active ? `The sign-extended immediate of ${name(t)}${t.ctrl.aluSrcB === 'IMM' ? ', routed to ALU operand B' : ''}${t.ctrl.branch || t.ctrl.jump === 'JAL' ? ', and to the branch adder to form PC + imm' : ''}.` : `${name(t)} has no immediate.` };
   },
   'w.rd': (t) => ({ title: 'rd (destination register number)', value: `${t.instr.rd} (${rd(t)})`, kind: 'data', active: t.ctrl.regWrite, why: t.ctrl.regWrite ? `Bits 11:7 of the instruction select which register receives the result: ${rd(t)}.` : `${name(t)} writes no register, so the rd field is ignored${t.instr.format === 'S' || t.instr.format === 'B' ? ' (S/B formats use those bits for the immediate)' : ''}.` }),
@@ -142,23 +152,27 @@ const RULES: Record<string, Rule> = {
     title: 'ALU operand A mux', value: `selects ${t.ctrl.aluSrcA === 'PC' ? 'PC' : 'rs1'}`, kind: 'component', active: true,
     why: t.ctrl.aluSrcA === 'PC'
       ? `${name(t)} computes an address relative to the PC (${t.instr.def?.name === 'auipc' ? 'PC + upper immediate' : 'PC + offset'}), so the ALU's first operand is the PC (${hex32(t.pc)}) instead of a register.`
-      : `${name(t)} operates on register data: the ALU's first operand is ${rs1(t)} = ${both(t.opA)}.`,
+      : `${name(t)} operates on register data: the ${isFpu(t) ? 'FPU' : 'ALU'}'s first operand is ${rs1(t)} = ${v1(t, t.opA)}.`,
   }),
   muxAluB: (t) => ({
     title: 'ALU operand B mux', value: `selects ${t.ctrl.aluSrcB === 'IMM' ? 'immediate' : 'rs2'}`, kind: 'component', active: true,
     why: t.ctrl.aluSrcB === 'IMM'
       ? `ALUSrc=1: ${name(t)} is ${FORMAT_WORDS[t.instr.format ?? '']}, so its second operand is the immediate ${both(t.imm)}${t.ctrl.memRead || t.ctrl.memWrite ? ' (the address offset added to the base register)' : ''}.`
-      : `ALUSrc=0: ${name(t)} is R-type, so the second operand comes from register ${rs2(t)} = ${both(t.opB)}.`,
+      : `ALUSrc=0: ${name(t)} is ${t.instr.format}-type, so the second operand comes from register ${rs2(t)} = ${v2(t, t.opB)}.`,
   }),
-  alu: (t) => ({
-    title: 'ALU', value: `${dec(t.aluA)} ${aluSymbol(t.ctrl.aluOp)} ${dec(t.aluB)} = ${both(t.aluResult)}`, kind: 'component', active: true,
-    why: aluWhy(t),
-  }),
-  'w.aluA': (t) => ({ title: 'ALU input A', value: both(t.aluA), kind: 'data', active: true, why: `${t.ctrl.aluSrcA === 'PC' ? 'The PC' : `Register ${rs1(t)}`}${t.fwdA !== 'NONE' ? ' (forwarded)' : ''} = ${both(t.aluA)}.` }),
-  'w.aluB': (t) => ({ title: 'ALU input B', value: both(t.aluB), kind: 'data', active: true, why: `${t.ctrl.aluSrcB === 'IMM' ? 'The immediate' : `Register ${rs2(t)}`}${t.fwdB !== 'NONE' && t.ctrl.aluSrcB === 'REG' ? ' (forwarded)' : ''} = ${both(t.aluB)}.` }),
+  alu: (t) => isFpu(t)
+    ? { title: 'ALU / FPU (floating-point unit)', value: t.trap ? 'trap' : fpuExpression(t), kind: 'component', active: true, why: fpuWhy(t) }
+    : {
+      title: 'ALU', value: `${dec(t.aluA)} ${aluSymbol(t.ctrl.aluOp)} ${dec(t.aluB)} = ${both(t.aluResult)}`, kind: 'component', active: !t.ctrl.csr,
+      why: aluWhy(t),
+    },
+  'w.aluA': (t) => ({ title: `${isFpu(t) ? 'FPU' : 'ALU'} input A`, value: t.ctrl.aluSrcA === 'PC' ? both(t.aluA) : v1(t, t.aluA), kind: 'data', active: !t.ctrl.csr, why: `${t.ctrl.aluSrcA === 'PC' ? 'The PC' : `Register ${rs1(t)}`}${t.fwdA !== 'NONE' ? ' (forwarded)' : ''} = ${t.ctrl.aluSrcA === 'PC' ? both(t.aluA) : v1(t, t.aluA)}.` }),
+  'w.aluB': (t) => ({ title: `${isFpu(t) ? 'FPU' : 'ALU'} input B`, value: t.ctrl.aluSrcB === 'IMM' ? both(t.aluB) : v2(t, t.aluB), kind: 'data', active: !t.ctrl.csr, why: `${t.ctrl.aluSrcB === 'IMM' ? 'The immediate' : `Register ${rs2(t)}`}${t.fwdB !== 'NONE' && t.ctrl.aluSrcB === 'REG' ? ' (forwarded)' : ''} = ${t.ctrl.aluSrcB === 'IMM' ? both(t.aluB) : v2(t, t.aluB)}.` }),
   'w.aluResult': (t) => ({
-    title: 'ALU result', value: both(t.aluResult), kind: 'data', active: true,
-    why: t.ctrl.memRead || t.ctrl.memWrite
+    title: `${isFpu(t) ? 'FPU' : 'ALU'} result`, value: isFpu(t) ? vd(t, t.aluResult) : both(t.aluResult), kind: 'data', active: !t.ctrl.csr,
+    why: isFpu(t) ? `The FPU result ${vd(t, t.aluResult)} travels on the same result bus as integer ALU results, to the write-back mux for ${rd(t)}.`
+      : t.ctrl.csr ? `${name(t)} does not use the ALU; the CSR unit does its work at write-back.`
+      : t.ctrl.memRead || t.ctrl.memWrite
       ? `For ${name(t)} the ALU result is the effective memory address: ${rs1(t)} + ${dec(t.imm)} = ${hex32(t.aluResult)}.`
       : t.ctrl.jump === 'JALR' ? `For jalr the ALU result (${rs1(t)} + ${dec(t.imm)}) is the jump target, sent to the PC mux.`
         : t.ctrl.branch ? `Branches do not use the ALU result; the comparison happens in the branch unit.`
@@ -191,21 +205,21 @@ const RULES: Record<string, Rule> = {
     const active = t.ctrl.memRead !== null || t.ctrl.memWrite !== null;
     return {
       title: 'Data memory', value: t.ctrl.memRead ? `read [${hex32(t.memAddr)}] = ${both(t.memReadData)}` : t.ctrl.memWrite ? `write [${hex32(t.memAddr)}] ← ${both(t.memWriteData)}` : 'idle', kind: 'component', active,
-      why: t.ctrl.memRead ? `${name(t)} loads ${widthWord(t.ctrl.memRead)} from address ${hex32(t.memAddr)} (${rs1(t)} + ${dec(t.imm)}). MemRead=1. The value ${both(t.memReadData)} goes to the write-back mux.`
-        : t.ctrl.memWrite ? `${name(t)} stores ${widthWord(t.ctrl.memWrite)} of ${rs2(t)} (${both(t.memWriteData)}) to address ${hex32(t.memAddr)}. MemWrite=1.`
+      why: t.ctrl.memRead ? `${name(t)} loads ${widthWord(t.ctrl.memRead)} from address ${hex32(t.memAddr)} (${rs1(t)} + ${dec(t.imm)}). MemRead=1. The value ${vd(t, t.memReadData)} goes to the write-back mux.`
+        : t.ctrl.memWrite ? `${name(t)} stores ${widthWord(t.ctrl.memWrite)} of ${rs2(t)} (${v2(t, t.memWriteData)}) to address ${hex32(t.memAddr)}. MemWrite=1.`
           : `${name(t)} is not a load or store, so MemRead=MemWrite=0 and the memory does nothing this cycle.`,
     };
   },
   'w.memAddr': (t) => { const a = t.ctrl.memRead !== null || t.ctrl.memWrite !== null; return { title: 'Memory address', value: hex32(t.memAddr), kind: 'data', active: a, why: a ? `The ALU computed ${rs1(t)} + ${dec(t.imm)} = ${hex32(t.memAddr)} as the effective address.` : 'The ALU result reaches the address port, but memory is disabled for this instruction.' }; },
-  'w.memWriteData': (t) => ({ title: 'Memory write data', value: both(t.memWriteData), kind: 'data', active: t.ctrl.memWrite !== null, why: t.ctrl.memWrite ? `${rs2(t)} = ${both(t.memWriteData)} is the value ${name(t)} stores.` : `Only stores use this port; ${name(t)} is not a store.` }),
-  'w.memReadData': (t) => ({ title: 'Memory read data', value: both(t.memReadData), kind: 'data', active: t.ctrl.memRead !== null, why: t.ctrl.memRead ? `The ${widthWord(t.ctrl.memRead)} loaded from ${hex32(t.memAddr)}, ${t.ctrl.memRead.endsWith('U') ? 'zero-extended' : 'sign-extended'} to 32 bits: ${both(t.memReadData)}.` : `${name(t)} does not load, so this output is not selected by the write-back mux.` }),
+  'w.memWriteData': (t) => ({ title: 'Memory write data', value: v2(t, t.memWriteData), kind: 'data', active: t.ctrl.memWrite !== null, why: t.ctrl.memWrite ? `${rs2(t)} = ${v2(t, t.memWriteData)} is the value ${name(t)} stores.` : `Only stores use this port; ${name(t)} is not a store.` }),
+  'w.memReadData': (t) => ({ title: 'Memory read data', value: vd(t, t.memReadData), kind: 'data', active: t.ctrl.memRead !== null, why: t.ctrl.memRead ? (t.ctrl.memRead === 'W' ? `The word loaded from ${hex32(t.memAddr)}: ${vd(t, t.memReadData)}${regFile(t.instr.def, 'rd') === 'F' ? ', copied bit-for-bit into the FP register' : ''}.` : `The ${widthWord(t.ctrl.memRead)} loaded from ${hex32(t.memAddr)}, ${t.ctrl.memRead.endsWith('U') ? 'zero-extended' : 'sign-extended'} to 32 bits: ${both(t.memReadData)}.`) : `${name(t)} does not load, so this output is not selected by the write-back mux.` }),
 
   // ---------------------------------------------------------------- WB ----
   muxWb: (t) => ({
     title: 'Write-back mux (MemToReg)', value: t.ctrl.wbSrc === 'NONE' ? 'unused' : `selects ${t.ctrl.wbSrc}`, kind: 'component', active: t.ctrl.regWrite,
-    why: t.ctrl.regWrite ? `${name(t)} writes ${wbSrcWord(t)} to ${rd(t)}, so the mux selects ${t.ctrl.wbSrc}: ${both(t.wbValue)}.` : `${name(t)} does not write a register, so the mux output is ignored.`,
+    why: t.ctrl.regWrite ? `${name(t)} writes ${wbSrcWord(t)} to ${rd(t)}, so the mux selects ${t.ctrl.wbSrc}: ${vd(t, t.wbValue)}.${t.ctrl.csr ? ` ${csrSentence(t)}` : ''}` : `${name(t)} does not write a register, so the mux output is ignored.${t.ctrl.csr ? ` ${csrSentence(t)}` : ''}`,
   }),
-  'w.wbData': (t) => ({ title: 'Write-back data', value: both(t.wbValue), kind: 'data', active: t.ctrl.regWrite, why: t.ctrl.regWrite ? `${both(t.wbValue)} is written into ${rd(t)} at the end of the cycle.` : 'No register write this instruction.' }),
+  'w.wbData': (t) => ({ title: 'Write-back data', value: vd(t, t.wbValue), kind: 'data', active: t.ctrl.regWrite, why: t.ctrl.regWrite ? `${vd(t, t.wbValue)} is written into ${rd(t)} at the end of the cycle.` : 'No register write this instruction.' }),
 
   // ---------------------------------------------------- control signals ----
   'c.regWrite': (t) => ({ title: 'RegWrite', value: t.ctrl.regWrite ? '1' : '0', kind: 'control', active: t.ctrl.regWrite, why: t.ctrl.regWrite ? `${name(t)} produces a result for ${rd(t)}, so the register file's write enable is asserted.` : `${name(t)} ${t.instr.def?.regWrite ? 'targets x0, which cannot be written' : 'produces no register result (stores, branches, and ecall write nothing)'}, so RegWrite=0.` }),
@@ -220,18 +234,18 @@ const RULES: Record<string, Rule> = {
 
   // ------------------------------------------------- pipeline-specific ----
   ifid: (t) => ({ title: 'IF/ID pipeline register', value: `${t.instr.def?.name ?? '?'} @ ${hex32(t.pc)}`, kind: 'component', active: true, why: `Holds the fetched instruction and its PC between the IF and ID stages. Its contents this cycle are what ID is decoding.` }),
-  idex: (t) => ({ title: 'ID/EX pipeline register', value: `${t.instr.def?.name ?? '?'} @ ${hex32(t.pc)}`, kind: 'component', active: true, why: `Carries the decoded instruction into EX: register values (${rs1(t)}=${dec(t.rs1Val)}, ${rs2(t)}=${dec(t.rs2Val)}), the immediate ${dec(t.imm)}, the PC, and all control signals for EX/MEM/WB.` }),
-  exmem: (t) => ({ title: 'EX/MEM pipeline register', value: `${t.instr.def?.name ?? '?'} @ ${hex32(t.pc)}`, kind: 'component', active: true, why: `Carries the ALU result ${both(t.aluResult)}, the store data, rd=${rd(t)}, and the MEM/WB control signals into the memory stage.` }),
+  idex: (t) => ({ title: 'ID/EX pipeline register', value: `${t.instr.def?.name ?? '?'} @ ${hex32(t.pc)}`, kind: 'component', active: true, why: `Carries the decoded instruction into EX: register values (${rs1(t)}=${v1(t, t.rs1Val)}, ${rs2(t)}=${v2(t, t.rs2Val)}${usesRs3(t.instr) ? `, ${rs3(t)}=${fmtOperand(t, 'rs3', t.rs3Val)}` : ''}), the immediate ${dec(t.imm)}, the PC, and all control signals for EX/MEM/WB.` }),
+  exmem: (t) => ({ title: 'EX/MEM pipeline register', value: `${t.instr.def?.name ?? '?'} @ ${hex32(t.pc)}`, kind: 'component', active: true, why: `Carries the ${isFpu(t) ? 'FPU' : 'ALU'} result ${isFpu(t) ? vd(t, t.aluResult) : both(t.aluResult)}${t.fpFlags ? ' and its FP exception flags' : ''}, the store data, rd=${rd(t)}, and the MEM/WB control signals into the memory stage.` }),
   memwb: (t) => ({ title: 'MEM/WB pipeline register', value: `${t.instr.def?.name ?? '?'} @ ${hex32(t.pc)}`, kind: 'component', active: true, why: `Carries the ALU result, memory read data, and rd=${rd(t)} into write-back, plus RegWrite=${+t.ctrl.regWrite} and MemToReg=${t.ctrl.wbSrc}.` }),
   muxFwdA: (t, ctx) => fwdMux('A', t, ctx),
   muxFwdB: (t, ctx) => fwdMux('B', t, ctx),
   'w.fwdA': (t, ctx) => fwdMux('A', t, ctx),
   'w.fwdB': (t, ctx) => fwdMux('B', t, ctx),
   forward: (t, ctx) => ({
-    title: 'Forwarding unit', value: `ForwardA=${t.fwdA}, ForwardB=${t.fwdB}`, kind: 'component', active: t.fwdA !== 'NONE' || t.fwdB !== 'NONE',
+    title: 'Forwarding unit', value: `ForwardA=${t.fwdA}, ForwardB=${t.fwdB}`, kind: 'component', active: t.fwdA !== 'NONE' || t.fwdB !== 'NONE' || t.fwdC !== 'NONE',
     why: !ctx.forwardingEnabled ? 'Forwarding is disabled in this processor configuration; dependent instructions must stall until the producer writes back.'
-      : t.fwdA === 'NONE' && t.fwdB === 'NONE' ? `Compares the rs1/rs2 of ${name(t)} (in EX) with the rd of the instructions in MEM and WB. No match with a pending register write, so operands come straight from the ID/EX register.`
-        : `Detected that ${name(t)} depends on a result still in the pipeline. ${t.fwdA !== 'NONE' ? `Operand A (${rs1(t)}) is taken from the ${t.fwdA === 'EXMEM' ? 'EX/MEM' : 'MEM/WB'} register. ` : ''}${t.fwdB !== 'NONE' ? `Operand B (${rs2(t)}) is taken from the ${t.fwdB === 'EXMEM' ? 'EX/MEM' : 'MEM/WB'} register.` : ''} This avoids a stall by bypassing the register file.`,
+      : t.fwdA === 'NONE' && t.fwdB === 'NONE' && t.fwdC === 'NONE' ? `Compares the rs1/rs2 of ${name(t)} (in EX) with the rd of the instructions in MEM and WB. No match with a pending register write, so operands come straight from the ID/EX register.`
+        : `Detected that ${name(t)} depends on a result still in the pipeline. ${t.fwdA !== 'NONE' ? `Operand A (${rs1(t)}) is taken from the ${t.fwdA === 'EXMEM' ? 'EX/MEM' : 'MEM/WB'} register. ` : ''}${t.fwdB !== 'NONE' ? `Operand B (${rs2(t)}) is taken from the ${t.fwdB === 'EXMEM' ? 'EX/MEM' : 'MEM/WB'} register. ` : ''}${t.fwdC !== 'NONE' ? `Operand C (${rs3(t)}) is taken from the ${t.fwdC === 'EXMEM' ? 'EX/MEM' : 'MEM/WB'} register. ` : ''}This avoids a stall by bypassing the register file.`,
   }),
   hazard: (t, ctx) => ({
     title: 'Hazard detection unit', value: ctx.hazard.stall ? 'STALL' : ctx.hazard.flush ? 'FLUSH' : 'no hazard', kind: 'component', active: ctx.hazard.stall || ctx.hazard.flush,
@@ -244,6 +258,7 @@ const RULES: Record<string, Rule> = {
 function fwdMux(which: 'A' | 'B', t: InstrTrace, ctx: ExplainCtx): Explanation {
   const src = which === 'A' ? t.fwdA : t.fwdB;
   const reg = which === 'A' ? rs1(t) : rs2(t);
+  const fmt = (v: number) => (which === 'A' ? v1(t, v) : v2(t, v));
   const val = which === 'A' ? t.opA : t.opB;
   const regVal = which === 'A' ? t.rs1Val : t.rs2Val;
   const used = which === 'A' ? usesA(t) : usesB(t);
@@ -251,18 +266,23 @@ function fwdMux(which: 'A' | 'B', t: InstrTrace, ctx: ExplainCtx): Explanation {
   return {
     title: `Forward${which} mux`, value: `selects ${sel}`, kind: 'component', active: src !== 'NONE',
     why: !used ? `${name(t)} does not use ${which === 'A' ? 'rs1' : 'rs2'}, so this mux's choice does not matter.`
-      : src === 'NONE' ? `${reg} = ${both(val)} came from the register file with no newer value in flight${ctx.forwardingEnabled ? '' : ' (forwarding disabled)'}.`
-        : `${reg} was read as ${both(regVal)} in ID, but the ${src === 'EXMEM' ? 'instruction one ahead (now in MEM)' : 'instruction two ahead (now in WB)'} is about to write ${reg} = ${both(val)}. Forwarding supplies the fresh value so ${name(t)} computes the right answer without waiting.`,
+      : src === 'NONE' ? `${reg} = ${fmt(val)} came from the register file with no newer value in flight${ctx.forwardingEnabled ? '' : ' (forwarding disabled)'}.`
+        : `${reg} was read as ${fmt(regVal)} in ID, but the ${src === 'EXMEM' ? 'instruction one ahead (now in MEM)' : 'instruction two ahead (now in WB)'} is about to write ${reg} = ${fmt(val)}. Forwarding supplies the fresh value so ${name(t)} computes the right answer without waiting.`,
   };
 }
 
 function usesA(t: InstrTrace): boolean {
-  const f = t.instr.format;
-  return f !== null && f !== 'U' && f !== 'J' && !t.ctrl.system && t.ctrl.aluSrcA === 'REG';
+  return usesRs1(t.instr) && t.ctrl.aluSrcA === 'REG';
 }
 function usesB(t: InstrTrace): boolean {
-  const f = t.instr.format;
-  return f === 'R' || f === 'S' || f === 'B';
+  return usesRs2(t.instr);
+}
+
+function regfileIntro(t: InstrTrace): string {
+  const fp = [regFile(t.instr.def, 'rd'), regFile(t.instr.def, 'rs1'), regFile(t.instr.def, 'rs2')].includes('F') || usesRs3(t.instr);
+  return fp
+    ? `Two banks of 32 registers: integer x0-x31 and floating-point f0-f31 (shown in the Float view). The opcode tells each operand field which bank it indexes: for ${name(t)}, rd is ${rd(t)}, rs1 is ${rs1(t)}, rs2 is ${rs2(t)}.`
+    : '32 registers with two read ports and one write port.';
 }
 
 function condWord(t: InstrTrace): string {
@@ -293,6 +313,7 @@ function aluWhy(t: InstrTrace): string {
   if (t.ctrl.branch) return `Branches use the separate comparator; the ALU output (${both(t.aluResult)}) is unused here.`;
   if (t.ctrl.jump === 'JAL') return `jal's target is formed by the branch adder; the ALU result is unused.`;
   if (t.ctrl.jump === 'JALR') return `jalr computes its target in the ALU: ${rs1(t)} (${dec(t.aluA)}) + ${dec(t.aluB)} = ${hex32(t.aluResult)}, with the low bit cleared.`;
+  if (t.ctrl.csr) return `${name(t)} leaves the ALU idle: the CSR unit reads and updates ${csrName(t.imm)} at write-back, in program order.`;
   if (op === 'COPY_B') return `lui simply passes the shifted immediate through: rd = ${both(t.aluResult)}.`;
   return `ALUOp=${op}: computes ${dec(t.aluA)} ${aluSymbol(op)} ${dec(t.aluB)} = ${both(t.aluResult)}, which will be written to ${rd(t)}.`;
 }
@@ -300,6 +321,8 @@ function aluWhy(t: InstrTrace): string {
 function aluOpWhy(t: InstrTrace): string {
   if (t.ctrl.memRead || t.ctrl.memWrite) return 'Loads and stores always ADD base + offset to form the address, regardless of funct3.';
   if (t.ctrl.branch) return 'Branches set the ALU to a don\'t-care; the comparator handles the condition.';
+  if (t.ctrl.fpuOp) return `Floating-point opcode: funct7=0x${t.instr.funct7.toString(16).padStart(2, '0')}${t.instr.def?.rs2Sel !== undefined ? ` and rs2=${t.instr.rs2}` : ''}${t.instr.def?.rm ? '' : ` and funct3=${t.instr.funct3}`} route the operands to the FPU, which performs ${t.ctrl.fpuOp}.`;
+  if (t.ctrl.csr) return `${name(t)} is a CSR instruction; the ALU is not used.`;
   const f = t.instr.format;
   if (f === 'R') return `R-type: funct3=${t.instr.funct3} and funct7=${t.instr.funct7 === 0x20 ? '0x20' : t.instr.funct7 === 1 ? '0x01 (M extension)' : '0'} select ${t.ctrl.aluOp}.`;
   if (f === 'I') return `I-type ALU op: funct3=${t.instr.funct3}${t.instr.def?.name === 'srai' ? ' with bit 30 set' : ''} selects ${t.ctrl.aluOp}.`;

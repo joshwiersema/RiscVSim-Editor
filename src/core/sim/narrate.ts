@@ -1,7 +1,9 @@
 import { disassemble } from '../isa/decode';
+import { operandName, usesRs1, usesRs2, usesRs3 } from '../isa/operands';
 import { regName } from '../isa/registers';
 import { hex32 } from '../util/format';
 import { aluSymbol } from './alu';
+import { csrSentence, flagList, fpuExpression, shortOperand } from './describe';
 import type { CycleTrace, InstrTrace } from './types';
 
 export type StageName = 'IF' | 'ID' | 'EX' | 'MEM' | 'WB';
@@ -22,7 +24,6 @@ export interface CycleStory {
 }
 
 const d = (v: number) => String(v | 0);
-const r = regName;
 
 function asmText(t: InstrTrace, labelFor?: (a: number) => string | undefined): string {
   return disassemble(t.instr, t.pc, labelFor);
@@ -40,23 +41,30 @@ function idStory(t: InstrTrace): string[] {
     `Opcode ${t.instr.opcode.toString(2).padStart(7, '0')} identifies \`${t.instr.def?.name}\` (${t.instr.format}-type); the control unit sets its signals.`,
   ];
   const reads: string[] = [];
-  if (t.instr.format !== 'U' && t.instr.format !== 'J' && !t.ctrl.system) reads.push(`${r(t.instr.rs1)} = ${d(t.rs1Val)}`);
-  if (t.instr.format === 'R' || t.instr.format === 'S' || t.instr.format === 'B') reads.push(`${r(t.instr.rs2)} = ${d(t.rs2Val)}`);
+  if (usesRs1(t.instr)) reads.push(`${operandName(t.instr, 'rs1')} = ${shortOperand(t, 'rs1', t.rs1Val)}`);
+  if (usesRs2(t.instr)) reads.push(`${operandName(t.instr, 'rs2')} = ${shortOperand(t, 'rs2', t.rs2Val)}`);
+  if (usesRs3(t.instr)) reads.push(`${operandName(t.instr, 'rs3')} = ${shortOperand(t, 'rs3', t.rs3Val)}`);
   if (reads.length) lines.push(`Register file reads ${reads.join(' and ')}.`);
-  if (t.instr.format !== 'R' && !t.ctrl.system) lines.push(`Immediate generator produces ${d(t.imm)} (${hex32(t.imm)}).`);
+  if (t.instr.format !== 'R' && t.instr.format !== 'R4' && !t.ctrl.system) lines.push(`Immediate generator produces ${d(t.imm)} (${hex32(t.imm)}).`);
   return lines;
 }
 
 function exStory(t: InstrTrace, model: 'single' | 'pipeline'): string[] {
   const lines: string[] = [];
-  if (model === 'pipeline' && (t.fwdA !== 'NONE' || t.fwdB !== 'NONE')) {
+  if (model === 'pipeline' && (t.fwdA !== 'NONE' || t.fwdB !== 'NONE' || t.fwdC !== 'NONE')) {
     const parts = [];
-    if (t.fwdA !== 'NONE') parts.push(`${r(t.instr.rs1)} forwarded from ${t.fwdA === 'EXMEM' ? 'EX/MEM' : 'MEM/WB'} (${d(t.opA)})`);
-    if (t.fwdB !== 'NONE') parts.push(`${r(t.instr.rs2)} forwarded from ${t.fwdB === 'EXMEM' ? 'EX/MEM' : 'MEM/WB'} (${d(t.opB)})`);
+    const from = (src: string) => (src === 'EXMEM' ? 'EX/MEM' : 'MEM/WB');
+    if (t.fwdA !== 'NONE') parts.push(`${operandName(t.instr, 'rs1')} forwarded from ${from(t.fwdA)} (${shortOperand(t, 'rs1', t.opA)})`);
+    if (t.fwdB !== 'NONE') parts.push(`${operandName(t.instr, 'rs2')} forwarded from ${from(t.fwdB)} (${shortOperand(t, 'rs2', t.opB)})`);
+    if (t.fwdC !== 'NONE') parts.push(`${operandName(t.instr, 'rs3')} forwarded from ${from(t.fwdC)} (${shortOperand(t, 'rs3', t.opC)})`);
     lines.push(`Forwarding: ${parts.join('; ')}.`);
   }
   const c = t.ctrl;
-  if (c.memRead || c.memWrite) lines.push(`ALU adds base ${r(t.instr.rs1)} (${d(t.aluA)}) + offset ${d(t.aluB)} = address ${hex32(t.aluResult)}.`);
+  const r = regName; // the address, branch, and jump paths below only use integer registers
+  if (t.trap) lines.push(`${t.trap}.`);
+  else if (c.fpuOp) lines.push(`FPU computes ${fpuExpression(t)}${t.fpFlags ? ` and raises ${flagList(t.fpFlags)}` : ''}.`);
+  else if (c.csr) lines.push('ALU idle: the CSR access happens at write-back.');
+  else if (c.memRead || c.memWrite) lines.push(`ALU adds base ${r(t.instr.rs1)} (${d(t.aluA)}) + offset ${d(t.aluB)} = address ${hex32(t.aluResult)}.`);
   else if (c.branch) {
     lines.push(`Comparator checks ${r(t.instr.rs1)} (${d(t.opA)}) vs ${r(t.instr.rs2)} (${d(t.opB)}): condition is ${t.branchCondMet ? 'TRUE' : 'FALSE'}.`);
     lines.push(`Branch adder computes PC + ${d(t.imm)} = ${hex32(t.branchTarget)}. ${t.branchCondMet ? `PC will be redirected there.` : 'Not taken; PC continues to PC+4.'}`);
@@ -69,17 +77,20 @@ function exStory(t: InstrTrace, model: 'single' | 'pipeline'): string[] {
 
 function memStory(t: InstrTrace): string[] {
   const c = t.ctrl;
-  if (c.memRead) return [`Data memory reads ${hex32(t.memAddr)} → ${d(t.memReadData)} (${hex32(t.memReadData)}).`];
-  if (c.memWrite) return [`Data memory writes ${d(t.memWriteData)} (${hex32(t.memWriteData)}) to ${hex32(t.memAddr)}.`];
-  return ['No memory access; the ALU result passes straight through.'];
+  if (c.memRead) return [`Data memory reads ${hex32(t.memAddr)} → ${shortOperand(t, 'rd', t.memReadData)} (${hex32(t.memReadData)}).`];
+  if (c.memWrite) return [`Data memory writes ${shortOperand(t, 'rs2', t.memWriteData)} (${hex32(t.memWriteData)}) to ${hex32(t.memAddr)}.`];
+  return [`No memory access; the ${c.fpuOp ? 'FPU' : 'ALU'} result passes straight through.`];
 }
 
 function wbStory(t: InstrTrace): string[] {
   const c = t.ctrl;
   const lines: string[] = [];
-  if (c.regWrite) lines.push(`${r(t.instr.rd)} ← ${d(t.wbValue)} (${hex32(t.wbValue)}) from ${c.wbSrc === 'MEM' ? 'memory' : c.wbSrc === 'PC4' ? 'PC+4' : 'the ALU'}.`);
+  const source = c.wbSrc === 'MEM' ? 'memory' : c.wbSrc === 'PC4' ? 'PC+4' : c.wbSrc === 'CSR' ? 'the CSR' : c.fpuOp ? 'the FPU' : 'the ALU';
+  if (c.csr) lines.push(csrSentence(t));
+  if (c.regWrite) lines.push(`${operandName(t.instr, 'rd')} ← ${shortOperand(t, 'rd', t.wbValue)} (${hex32(t.wbValue)}) from ${source}.`);
   else if (t.instr.def?.regWrite && t.instr.rd === 0) lines.push('Destination is x0, so the result is discarded.');
-  else lines.push('Nothing to write back.');
+  else if (!c.csr) lines.push('Nothing to write back.');
+  if (t.fpFlags) lines.push(`fflags |= ${flagList(t.fpFlags)} (sticky exception flags accrue in fcsr).`);
   if (t.ecall) lines.push(`ecall #${t.ecall.code}: ${t.ecall.description}.`);
   return lines;
 }

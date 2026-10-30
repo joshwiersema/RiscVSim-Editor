@@ -1,6 +1,9 @@
 import type { Program } from '../program';
 import { cacheAccess, emptyCache, DEFAULT_DCACHE, DEFAULT_ICACHE, type CacheConfig, type CacheState } from '../cache/cache';
 import { IO_BASE } from '../io/devices';
+import { parseFloatLiteral } from '../asm/assembler';
+import { CANONICAL_NAN } from '../fp/softfloat';
+import { FA0 } from './ecall';
 import { PipelineProcessor } from './pipeline';
 import { DEFAULT_OPTIONS, freshCore, type ModelKind, type Processor, type ProcessorOptions } from './processor';
 import { SingleCycleProcessor } from './singleCycle';
@@ -9,6 +12,7 @@ import type { CycleTrace, MemWrite, Stats } from './types';
 interface HistoryEntry {
   readonly pc: number;
   readonly regs: readonly number[];
+  readonly fcsr: number;
   readonly micro: unknown;
   readonly finished: boolean;
   readonly exitCode: number;
@@ -80,7 +84,7 @@ export class Machine {
     if (this.core.finished || this.core.pendingInput) return null;
     const c = this.core;
     const before = {
-      pc: c.pc, regs: [...c.regs], micro: this.proc.saveMicroState(), finished: c.finished, exitCode: c.exitCode, error: c.error,
+      pc: c.pc, regs: [...c.regs], fcsr: c.fcsr, micro: this.proc.saveMicroState(), finished: c.finished, exitCode: c.exitCode, error: c.error,
       cycle: c.cycle, fetchSeq: c.fetchSeq, stats: c.stats, outputLength: this.output.length,
       icache: this.icache, dcache: this.dcache, devices: c.devices.all.map((d) => d.snapshot()), inputWrites: [] as MemWrite[],
     };
@@ -117,6 +121,9 @@ export class Machine {
         c.regs[10] = Number.isNaN(v) ? 0 : v | 0;
         break;
       }
+      case 'float':
+        c.regs[FA0] = parseConsoleFloat(text);
+        break;
       case 'char':
         c.regs[10] = text.length ? text.charCodeAt(0) & 0xff : 10;
         break;
@@ -146,7 +153,7 @@ export class Machine {
       const w = h.trace.memWrites[i];
       c.mem.write(w.addr, w.width, w.prev);
     }
-    c.pc = h.pc; c.regs = [...h.regs]; c.finished = h.finished; c.exitCode = h.exitCode; c.error = h.error; c.cycle = h.cycle; c.fetchSeq = h.fetchSeq; c.stats = h.stats;
+    c.pc = h.pc; c.regs = [...h.regs]; c.fcsr = h.fcsr; c.finished = h.finished; c.exitCode = h.exitCode; c.error = h.error; c.cycle = h.cycle; c.fetchSeq = h.fetchSeq; c.stats = h.stats;
     c.pendingInput = null;
     this.proc.restoreMicroState(h.micro);
     this.icache = h.icache; this.dcache = h.dcache;
@@ -166,5 +173,14 @@ export class Machine {
       if (this.breakpoints.size > 0 && this.breakpoints.has(this.core.pc)) return { stoppedAtBreakpoint: true, cycles: n };
     }
     return { stoppedAtBreakpoint: false, cycles: n };
+  }
+}
+
+/** A number typed for read_float; anything unparseable reads as NaN so the program can see it. */
+function parseConsoleFloat(text: string): number {
+  try {
+    return parseFloatLiteral(text);
+  } catch {
+    return CANONICAL_NAN;
   }
 }

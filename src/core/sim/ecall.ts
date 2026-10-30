@@ -1,6 +1,11 @@
 import type { Memory } from './memory';
+import { FP_REG_BASE } from '../isa/registers';
+import { formatFloat } from '../fp/format';
 
-export type InputKind = 'int' | 'string' | 'char';
+export type InputKind = 'int' | 'float' | 'string' | 'char';
+
+/** fa0, where float syscalls take their argument and return their result. */
+export const FA0 = FP_REG_BASE + 10;
 
 export interface EcallResult {
   readonly code: number;
@@ -28,8 +33,10 @@ export function performEcall(regs: readonly number[], mem: Memory): EcallResult 
   const base = { code: a7, output: '', exit: false, exitCode: 0, input: null };
   switch (a7) {
     case 1: return { ...base, output: String(a0 | 0), description: `print_int: prints a0 = ${a0 | 0}` };
+    case 2: return { ...base, output: formatFloat(regs[FA0]), description: `print_float: prints fa0 = ${formatFloat(regs[FA0])}` };
     case 4: { const s = readCString(mem, a0); return { ...base, output: s, description: `print_string: prints the NUL-terminated string at a0 = 0x${(a0 >>> 0).toString(16)}` }; }
     case 5: return { ...base, input: { kind: 'int', addr: 0, maxLen: 0 }, description: 'read_int: waits for an integer typed into the console, then stores it in a0' };
+    case 6: return { ...base, input: { kind: 'float', addr: 0, maxLen: 0 }, description: 'read_float: waits for a number typed into the console, then stores it in fa0' };
     case 8: return { ...base, input: { kind: 'string', addr: a0 >>> 0, maxLen: a1 | 0 }, description: `read_string: waits for a line of input and stores up to a1 = ${a1 | 0} bytes at a0 = 0x${(a0 >>> 0).toString(16)}` };
     case 10: return { ...base, exit: true, description: 'exit: halts the program' };
     case 11: return { ...base, output: String.fromCharCode(a0 & 0xff), description: `print_char: prints a0 as ASCII '${String.fromCharCode(a0 & 0xff)}'` };
@@ -44,8 +51,10 @@ export function performEcall(regs: readonly number[], mem: Memory): EcallResult 
 
 export const SYSCALL_TABLE: readonly { code: number; name: string; args: string }[] = [
   { code: 1, name: 'print_int', args: 'a0 = integer' },
+  { code: 2, name: 'print_float', args: 'fa0 = float' },
   { code: 4, name: 'print_string', args: 'a0 = address of NUL-terminated string' },
   { code: 5, name: 'read_int', args: 'result in a0' },
+  { code: 6, name: 'read_float', args: 'result in fa0' },
   { code: 8, name: 'read_string', args: 'a0 = buffer, a1 = max length' },
   { code: 10, name: 'exit', args: '' },
   { code: 11, name: 'print_char', args: 'a0 = character' },

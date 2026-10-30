@@ -1,8 +1,8 @@
 import { useEffect } from 'react';
 import { useStore, type SidebarView } from '../state/store';
 
-/** Ctrl+1 … Ctrl+8 pick a side-panel view, in rail order. */
-const VIEW_KEYS: readonly SidebarView[] = ['editor', 'program', 'memory', 'cache', 'io', 'console', 'stats', 'reference'];
+/** Ctrl+1 … Ctrl+9 pick a side-panel view, in rail order. */
+const VIEW_KEYS: readonly SidebarView[] = ['editor', 'program', 'memory', 'float', 'cache', 'io', 'console', 'stats', 'reference'];
 
 /** Global shortcuts. Ignored while typing in the editor or inputs. */
 export function useKeyboard(): void {
@@ -14,7 +14,7 @@ export function useKeyboard(): void {
       const mod = e.ctrlKey || e.metaKey;
       if (mod && e.key === 'Enter') { e.preventDefault(); s.build(); return; }
       if (mod && !e.shiftKey && e.key.toLowerCase() === 'b') { e.preventDefault(); s.toggleSidebar(); return; }
-      if (mod && !e.shiftKey && /^[1-8]$/.test(e.key)) { e.preventDefault(); s.setSidebarView(VIEW_KEYS[Number(e.key) - 1]); return; }
+      if (mod && !e.shiftKey && /^[1-9]$/.test(e.key)) { e.preventDefault(); s.setSidebarView(VIEW_KEYS[Number(e.key) - 1]); return; }
       if (e.key === 'F1') { e.preventDefault(); s.setDialog(s.dialog === 'help' ? 'none' : 'help'); return; }
       if (typing) return;
       switch (e.key) {

@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-import { ABI_NAMES, REGISTER_ROLES } from '@/core/isa/registers';
+import { readIndices } from '@/core/isa/operands';
+import { ABI_NAMES, FP_REG_BASE, REGISTER_ROLES } from '@/core/isa/registers';
 import { formatValue } from '@/core/util/format';
 import { useStore } from '../state/store';
 
@@ -9,14 +10,11 @@ export function RegistersPanel() {
   const trace = useStore((s) => s.trace);
   const base = useStore((s) => s.base);
 
-  const regs = useMemo(() => (machine ? [...machine.core.regs] : new Array<number>(32).fill(0)), [machine, tick]);
+  const regs = useMemo(() => (machine ? machine.core.regs.slice(0, FP_REG_BASE) : new Array<number>(FP_REG_BASE).fill(0)), [machine, tick]);
   const changed = useMemo(() => new Set(trace?.regWrites.map((w) => w.reg) ?? []), [trace]);
   const reading = useMemo(() => {
-    const set = new Set<number>();
     const t = trace?.model === 'single' ? trace.stages.EX.trace : trace?.stages.ID.trace;
-    if (t && t.instr.format !== 'U' && t.instr.format !== 'J' && !t.ctrl.system) set.add(t.instr.rs1);
-    if (t && (t.instr.format === 'R' || t.instr.format === 'S' || t.instr.format === 'B')) set.add(t.instr.rs2);
-    return set;
+    return new Set(t ? readIndices(t.instr).filter((r) => r < FP_REG_BASE) : []);
   }, [trace]);
 
   return (

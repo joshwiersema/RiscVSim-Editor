@@ -1,12 +1,13 @@
 import { control } from './control';
-import { performEcall } from './ecall';
-import { executeStage, fetchDecode, memoryStage, writebackValue } from './execute';
+import { frmOf } from './csr';
+import { executeStage, fetchDecode, memoryStage, readSources } from './execute';
+import { commit } from './writeback';
 import type { CoreState, Processor } from './processor';
 import type { CycleTrace, InstrTrace, MemWrite, RegWrite, StageSlot } from './types';
 
 const EMPTY: StageSlot = { trace: null, note: null };
 
-/** Single-cycle RV32IM: one instruction per clock, everything combinational. */
+/** Single-cycle RV32IMF: one instruction per clock, everything combinational. */
 export class SingleCycleProcessor implements Processor {
   readonly kind = 'single' as const;
   constructor(readonly core: CoreState) {}
@@ -25,26 +26,18 @@ export class SingleCycleProcessor implements Processor {
       return emptyCycle(cycle, pcBefore, c.pc, c.error);
     }
 
-    const rs1Val = c.regs[instr.rs1];
-    const rs2Val = c.regs[instr.rs2];
-    const ex = executeStage({ seq: ++c.fetchSeq, pc: c.pc, instr, ctrl, rs1Val, rs2Val, opA: rs1Val, opB: rs2Val });
-    const mem = memoryStage(c.mem, ex);
-    const wbValue = writebackValue(ctrl, ex.aluResult, mem.readData, ex.pc4);
+    const { rs1Val, rs2Val, rs3Val } = readSources(c.regs, instr);
+    const ex = executeStage({ seq: ++c.fetchSeq, pc: c.pc, instr, ctrl, rs1Val, rs2Val, rs3Val, opA: rs1Val, opB: rs2Val, opC: rs3Val, frm: frmOf(c.fcsr) });
+    // A trapping instruction must not touch memory.
+    const mem = ex.trap ? { readData: 0, write: null } : memoryStage(c.mem, ex);
+    const done = commit(c, { ...ex, memReadData: mem.readData });
 
-    const regWrites: RegWrite[] = [];
-    if (ctrl.regWrite) {
-      regWrites.push({ reg: instr.rd, value: wbValue, prev: c.regs[instr.rd] });
-      c.regs[instr.rd] = wbValue;
-    }
+    const regWrites: RegWrite[] = done.regWrite ? [done.regWrite] : [];
     const memWrites: MemWrite[] = mem.write ? [mem.write] : [];
+    const { ecall } = done;
 
-    const ecall = ctrl.system === 'ECALL' ? performEcall(c.regs, c.mem) : null;
-    if (ecall?.exit) { c.finished = true; c.exitCode = ecall.exitCode; }
-    if (ecall?.input) c.pendingInput = ecall.input;
-    if (ctrl.system === 'EBREAK') { c.finished = true; }
-
-    const trace: InstrTrace = { ...ex, memReadData: mem.readData, wbValue, ecall };
-    c.pc = ex.nextPc;
+    const trace: InstrTrace = { ...ex, memReadData: mem.readData, wbValue: done.wbValue, ecall, csrOp: done.csrOp };
+    if (!c.error) c.pc = ex.nextPc; // a trap leaves the PC on the faulting instruction
     if (c.pc >= c.textEnd) c.finished = true;
     c.stats = { ...c.stats, instructions: c.stats.instructions + 1 };
 

@@ -14,7 +14,7 @@ import { applyTheme, loadTheme, type ThemeMode } from './theme';
 export const PHASE_COMPLETE = 4;
 
 /** Views reachable from the activity rail; each fills the side panel. */
-export type SidebarView = 'editor' | 'program' | 'memory' | 'cache' | 'io' | 'console' | 'stats' | 'reference';
+export type SidebarView = 'editor' | 'program' | 'memory' | 'float' | 'cache' | 'io' | 'console' | 'stats' | 'reference';
 const SIDEBAR_KEY = 'riscsim.sidebar';
 
 function loadSidebar(): { view: SidebarView; open: boolean } {

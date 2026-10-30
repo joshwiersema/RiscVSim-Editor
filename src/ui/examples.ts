@@ -224,6 +224,80 @@ print:
 `,
   },
   {
+    id: 'float',
+    title: 'Floating point (RV32F)',
+    blurb: 'f registers, the FPU, rounding, fused multiply-add, and sticky exception flags.',
+    source: `# Floating point with the F extension.
+# Open the Float tab (right panel, or Ctrl+4) and step: watch the f
+# registers, the IEEE-754 sign / exponent / fraction bits of each result,
+# and the fcsr flags (NX = inexact, DZ = divide by zero, NV = invalid).
+
+.data
+radius: .float 2.5
+pi:     .float 3.14159265
+coeffs: .float 0.5, -1.25, 3.0     # p(x) = 0.5x^2 - 1.25x + 3
+msg1:   .asciz "area = "
+msg2:   .asciz "\\np(r) = "
+msg3:   .asciz "\\nround(area) = "
+
+.text
+main:
+    la      t0, radius
+    flw     fa1, 0(t0)          # fa1 = r = 2.5 (exact in binary)
+    flw     ft0, 4(t0)          # ft0 = pi (rounded to 24 bits)
+    fmul.s  ft1, fa1, fa1       # r*r = 6.25, exact: no flags
+    fmul.s  fs0, ft1, ft0       # area = pi*r^2 (inexact: NX is set)
+
+    la      a0, msg1
+    li      a7, 4
+    ecall
+    fmv.s   fa0, fs0            # print_float prints fa0
+    li      a7, 2
+    ecall
+
+    # Horner's rule with fused multiply-add (one rounding per step).
+    la      t1, coeffs
+    flw     ft2, 0(t1)
+    flw     ft3, 4(t1)
+    flw     ft4, 8(t1)
+    fmadd.s ft5, ft2, fa1, ft3  # 0.5*r - 1.25
+    fmadd.s fs1, ft5, fa1, ft4  # (...)*r + 3 = 3.0
+    la      a0, msg2
+    li      a7, 4
+    ecall
+    fmv.s   fa0, fs1
+    li      a7, 2
+    ecall
+
+    # Float -> int: the rounding mode matters.
+    fcvt.w.s s2, fs0, rtz       # 19 (truncate)
+    fcvt.w.s s3, fs0, rne       # 20 (nearest)
+    la      a0, msg3
+    li      a7, 4
+    ecall
+    mv      a0, s3
+    li      a7, 1
+    ecall
+
+    # Compare and branch on a float condition.
+    flt.s   t2, fs1, fs0        # p(r) < area ?
+    beqz    t2, specials
+    fneg.s  fs1, fs1            # sign injection flips only bit 31
+
+specials:
+    # Special values: watch the category chip in the Float view.
+    fcvt.s.w ft6, zero          # 0.0
+    fdiv.s  ft7, fa1, ft6       # 2.5 / 0 = +inf, raises DZ
+    fsub.s  ft8, ft7, ft7       # inf - inf = NaN, raises NV
+    fclass.s t3, ft8            # bit 9: quiet NaN
+    frflags s4                  # read the sticky flags (NV|DZ|NX)
+    fsflags zero                # ...and clear them
+
+    li      a7, 10
+    ecall
+`,
+  },
+  {
     id: 'io',
     title: 'Memory-mapped I/O',
     blurb: 'Light LEDs from the switches: flip a switch in the I/O tab, then run.',

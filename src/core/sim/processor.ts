@@ -1,5 +1,6 @@
 import { STACK_TOP } from '../asm/assembler';
 import type { Program } from '../program';
+import { REG_COUNT } from '../isa/registers';
 import { createDevices, type DeviceSet } from '../io/devices';
 import type { InputKind } from './ecall';
 import { Memory } from './memory';
@@ -23,7 +24,10 @@ export interface PendingInput {
 
 /** Mutable architectural + microarchitectural state shared by both models. */
 export interface CoreState {
+  /** Unified register file: x0..x31 at 0..31, f0..f31 (raw IEEE-754 bits) at 32..63. */
   regs: number[];
+  /** Floating-point control and status: frm in bits 7:5, accrued fflags in bits 4:0. */
+  fcsr: number;
   pc: number;
   mem: Memory;
   devices: DeviceSet;
@@ -42,11 +46,11 @@ export function freshCore(program: Program): CoreState {
   const devices = createDevices();
   for (const d of devices.all) mem.mapDevice(d);
   for (const s of program.segments) s.bytes.forEach((b, i) => mem.writeByte(s.addr + i, b));
-  const regs = new Array<number>(32).fill(0);
+  const regs = new Array<number>(REG_COUNT).fill(0);
   regs[2] = STACK_TOP;
   regs[3] = 0x10000800 | 0; // gp: conventional data pointer
   return {
-    regs, pc: program.entry, mem, devices,
+    regs, fcsr: 0, pc: program.entry, mem, devices,
     textEnd: program.textEnd,
     finished: program.text.length === 0, exitCode: 0, error: null, pendingInput: null, cycle: 0, fetchSeq: 0,
     stats: { cycles: 0, instructions: 0, stalls: 0, flushes: 0 },

@@ -3,7 +3,9 @@ import { DATA_BASE, STACK_TOP, TEXT_BASE } from '@/core/asm/assembler';
 import { PSEUDO_NAMES } from '@/core/asm/pseudo';
 import { COMPRESSED_NAMES } from '@/core/isa/compressed';
 import { INSTRUCTIONS, type InstrDef } from '@/core/isa/instructions';
-import { ABI_NAMES, REGISTER_ROLES } from '@/core/isa/registers';
+import { ABI_NAMES, FP_ABI_NAMES, fpRegisterRole, REGISTER_ROLES } from '@/core/isa/registers';
+import { CSR_DESCRIPTIONS, CSR_NAMES } from '@/core/isa/csr';
+import { FLAG_INFO, RM_MNEMONICS, ROUNDING_MODE_NAMES } from '@/core/fp/format';
 import { CHAR_OUT_BASE, CYCLES_BASE, DPAD_BASE, IO_BASE, LED_BASE, SWITCH_BASE } from '@/core/io/devices';
 import { SYSCALL_TABLE } from '@/core/sim/ecall';
 import { classify, INSTR_CLASSES } from '@/core/sim/stats';
@@ -15,6 +17,7 @@ type Section = 'isa' | 'regs' | 'sys' | 'asm';
 const DIRECTIVES: readonly [string, string][] = [
   ['.text / .data', 'Switch to the code or data section'],
   ['.word / .half / .byte', '32-, 16-, or 8-bit values (comma separated)'],
+  ['.float / .single', 'IEEE-754 single-precision values (e.g. 3.14, -1e-3, inf, nan)'],
   ['.ascii / .asciz / .string', 'Text without / with a terminating NUL'],
   ['.space n / .zero n', 'Reserve n zero bytes'],
   ['.align n / .balign n', 'Align to 2^n bytes / to n bytes'],
@@ -90,6 +93,53 @@ function Instructions({ query }: { query: string }) {
 
 function Registers() {
   const saver = (i: number) => (i === 0 ? '—' : i === 1 || (i >= 5 && i <= 7) || (i >= 10 && i <= 17) || i >= 28 ? 'caller' : 'callee');
+  return (
+    <>
+      <section className="ref-group">
+        <div className="section-title"><span>Integer registers</span></div>
+        <IntRegisters saver={saver} />
+      </section>
+      <section className="ref-group">
+        <div className="section-title"><span>Floating-point registers (RV32F)</span></div>
+        <table className="table ref-table">
+          <thead><tr><th>reg</th><th>abi</th><th>role</th></tr></thead>
+          <tbody>
+            {FP_ABI_NAMES.map((n, i) => (
+              <tr key={n}><td className="mono">f{i}</td><td className="mono ref-name">{n}</td><td>{fpRegisterRole(i)}</td></tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+      <section className="ref-group">
+        <div className="section-title"><span>CSRs (csrr / csrw / frcsr / fsrm …)</span></div>
+        <table className="table ref-table">
+          <tbody>
+            {[...CSR_NAMES].map(([num, n]) => (
+              <tr key={n}><td className="mono ref-name">{n}</td><td className="mono muted">0x{num.toString(16).padStart(3, '0')}</td><td>{CSR_DESCRIPTIONS.get(num)}</td></tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+      <section className="ref-group">
+        <div className="section-title"><span>Rounding modes (optional last operand, or frm when dyn)</span></div>
+        <table className="table ref-table">
+          <tbody>
+            {ROUNDING_MODE_NAMES.map((name, i) => <tr key={name}><td className="mono ref-name">{RM_MNEMONICS[i]}</td><td className="mono muted">{i}</td><td>{name}</td></tr>)}
+            <tr><td className="mono ref-name">dyn</td><td className="mono muted">7</td><td>use the frm field of fcsr (the default)</td></tr>
+          </tbody>
+        </table>
+      </section>
+      <section className="ref-group">
+        <div className="section-title"><span>Exception flags (fflags, sticky)</span></div>
+        <table className="table ref-table">
+          <tbody>{FLAG_INFO.map((f) => <tr key={f.short}><td className="mono ref-name">{f.short}</td><td className="mono muted">0x{f.bit.toString(16)}</td><td>{f.name}</td></tr>)}</tbody>
+        </table>
+      </section>
+    </>
+  );
+}
+
+function IntRegisters({ saver }: { saver: (i: number) => string }) {
   return (
     <table className="table ref-table">
       <thead><tr><th>reg</th><th>abi</th><th>role</th><th>saved by</th></tr></thead>

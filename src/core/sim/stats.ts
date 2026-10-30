@@ -6,13 +6,14 @@
 import type { InstrDef } from '../isa/instructions';
 import type { CycleTrace, InstrTrace, Stats } from './types';
 
-export type InstrClass = 'arith' | 'logic' | 'shift' | 'muldiv' | 'load' | 'store' | 'branch' | 'jump' | 'system' | 'other';
+export type InstrClass = 'arith' | 'logic' | 'shift' | 'muldiv' | 'float' | 'load' | 'store' | 'branch' | 'jump' | 'system' | 'other';
 
 export const INSTR_CLASSES: readonly { readonly id: InstrClass; readonly label: string }[] = [
   { id: 'arith', label: 'Arithmetic' },
   { id: 'logic', label: 'Logic' },
   { id: 'shift', label: 'Shift' },
   { id: 'muldiv', label: 'Multiply / divide' },
+  { id: 'float', label: 'Floating point' },
   { id: 'load', label: 'Load' },
   { id: 'store', label: 'Store' },
   { id: 'branch', label: 'Branch' },
@@ -28,7 +29,8 @@ const LOGIC = new Set(['AND', 'OR', 'XOR']);
 /** Coarse category of an instruction, for the mix chart. */
 export function classify(def: InstrDef | null): InstrClass {
   if (!def) return 'other';
-  if (def.system) return 'system';
+  if (def.system || def.csr) return 'system';
+  if (def.fpu) return 'float';
   if (def.jump) return 'jump';
   if (def.branch) return 'branch';
   if (def.memRead) return 'load';
@@ -65,7 +67,7 @@ export interface RunSummary {
 }
 
 function emptyMix(): Record<InstrClass, number> {
-  return { arith: 0, logic: 0, shift: 0, muldiv: 0, load: 0, store: 0, branch: 0, jump: 0, system: 0, other: 0 };
+  return { arith: 0, logic: 0, shift: 0, muldiv: 0, float: 0, load: 0, store: 0, branch: 0, jump: 0, system: 0, other: 0 };
 }
 
 /** Aggregate every recorded cycle into one summary. */

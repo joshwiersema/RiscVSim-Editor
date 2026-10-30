@@ -1,16 +1,22 @@
-import { usesRs1, usesRs2, type Decoded } from '../isa/decode';
-import { regName } from '../isa/registers';
+import type { Decoded } from '../isa/decode';
+import { regIndex, usesRs1, usesRs2, usesRs3, type RegOperand } from '../isa/operands';
+import { unifiedRegName } from '../isa/registers';
 import { control, type Control } from './control';
-import { performEcall } from './ecall';
-import { executeStage, fetchDecode, memoryStage, writebackValue } from './execute';
+import { frmOf } from './csr';
+import { executeStage, fetchDecode, memoryStage, readSources, writebackValue, type ExResult } from './execute';
+import { commit } from './writeback';
 import type { CoreState, Processor, ProcessorOptions } from './processor';
 import type { CycleTrace, ForwardSrc, HazardInfo, InstrTrace, MemWrite, RegWrite, StageSlot } from './types';
 
 /** Pipeline register contents. Immutable records; null = bubble. */
 interface IfId { readonly seq: number; readonly pc: number; readonly instr: Decoded }
-interface IdEx { readonly seq: number; readonly pc: number; readonly instr: Decoded; readonly ctrl: Control; readonly rs1Val: number; readonly rs2Val: number }
-type ExMem = Omit<InstrTrace, 'memReadData' | 'wbValue' | 'ecall'>;
-type MemWb = Omit<InstrTrace, 'wbValue' | 'ecall'>;
+interface IdEx { readonly seq: number; readonly pc: number; readonly instr: Decoded; readonly ctrl: Control; readonly rs1Val: number; readonly rs2Val: number; readonly rs3Val: number }
+type ExMem = ExResult;
+type MemWb = Omit<InstrTrace, 'wbValue' | 'ecall' | 'csrOp'>;
+type Forwarded = { fwdA: ForwardSrc; fwdB: ForwardSrc; fwdC: ForwardSrc; opA: number; opB: number; opC: number };
+
+/** Fill the stage-only fields of a partial trace (instructions not yet in WB). */
+const inFlight = (t: ExResult, memReadData = 0): InstrTrace => ({ ...t, memReadData, wbValue: 0, ecall: null, csrOp: null });
 
 interface Regs {
   readonly ifid: IfId | null;
@@ -27,7 +33,9 @@ const EMPTY_NOTES: Regs["notes"] = { ifid: null, idex: null, exmem: null, memwb:
  * EX/MEM -> EX and MEM/WB -> EX forwarding, load-use stall detection, and
  * branches resolved in EX with a two-instruction flush (predict not-taken).
  * Register file writes in the first half of the cycle, so WB->ID needs no
- * forwarding.
+ * forwarding. Integer and FP registers share the forwarding paths (they are
+ * one unified index space). CSR instructions read and write their register in
+ * WB, so younger instructions wait in ID until they get there.
  */
 export class PipelineProcessor implements Processor {
   readonly kind = 'pipeline' as const;
@@ -61,20 +69,13 @@ export class PipelineProcessor implements Processor {
     let trapRedirect: number | null = null;
     if (p.memwb) {
       const t = p.memwb;
-      const wbValue = writebackValue(t.ctrl, t.aluResult, t.memReadData, t.pc4);
-      if (t.ctrl.regWrite) {
-        regWrites.push({ reg: t.instr.rd, value: wbValue, prev: c.regs[t.instr.rd] });
-        c.regs[t.instr.rd] = wbValue;
+      const done = commit(c, t);
+      if (done.regWrite) regWrites.push(done.regWrite);
+      if (done.ecall) {
+        output += done.ecall.output;
+        if (done.ecall.input) trapRedirect = t.pc4;
       }
-      let ecall = null;
-      if (t.ctrl.system === 'ECALL') {
-        ecall = performEcall(c.regs, c.mem);
-        output += ecall.output;
-        if (ecall.exit) { c.finished = true; c.exitCode = ecall.exitCode; }
-        if (ecall.input) { c.pendingInput = ecall.input; trapRedirect = t.pc4; }
-      }
-      if (t.ctrl.system === 'EBREAK') c.finished = true;
-      wbSlot = { trace: { ...t, wbValue, ecall }, note: null };
+      wbSlot = { trace: { ...t, wbValue: done.wbValue, ecall: done.ecall, csrOp: done.csrOp }, note: null };
       retired = 1;
     }
 
@@ -86,22 +87,23 @@ export class PipelineProcessor implements Processor {
       const note = 'squashed: the ecall in WB is waiting for input, so this instruction will be re-fetched afterwards';
       const squash = (t: InstrTrace | null): StageSlot => ({ trace: t, note });
       const partialOf = (r: { pc: number; instr: Decoded; seq: number } | null): InstrTrace | null =>
-        r ? { ...executeStage({ seq: r.seq, pc: r.pc, instr: r.instr, ctrl: control(r.instr), rs1Val: 0, rs2Val: 0, opA: 0, opB: 0 }), memReadData: 0, wbValue: 0, ecall: null } : null;
+        r ? inFlight(executeStage({ seq: r.seq, pc: r.pc, instr: r.instr, ctrl: control(r.instr), rs1Val: 0, rs2Val: 0, opA: 0, opB: 0 })) : null;
       const reason = 'Trap: the ecall reaching WB needs console input. Like a real precise exception, every younger instruction in the pipeline is squashed and execution resumes at the next instruction once the input arrives.';
       this.regsP = { ifid: null, idex: null, exmem: null, memwb: null, notes: { ifid: 'squashed (ecall trap)', idex: 'squashed (ecall trap)', exmem: 'squashed (ecall trap)', memwb: null } };
       c.pc = trapRedirect >>> 0;
       c.stats = { ...c.stats, cycles: cycle, instructions: c.stats.instructions + retired, flushes: c.stats.flushes + 1 };
       return {
         cycle, model: 'pipeline',
-        stages: { IF: { trace: null, note }, ID: squash(partialOf(p.ifid)), EX: squash(partialOf(p.idex)), MEM: squash(p.exmem ? { ...p.exmem, memReadData: 0, wbValue: 0, ecall: null } : null), WB: wbSlot },
+        stages: { IF: { trace: null, note }, ID: squash(partialOf(p.ifid)), EX: squash(partialOf(p.idex)), MEM: squash(p.exmem ? inFlight(p.exmem) : null), WB: wbSlot },
         hazard: { stall: false, flush: true, reason }, regWrites, memWrites, output, pcBefore, pcAfter: c.pc, retired,
       };
     }
-    if (p.exmem) {
-      const r = memoryStage(c.mem, p.exmem);
+    if (p.exmem && !c.finished) {
+      // A trapping instruction never touches memory.
+      const r = p.exmem.trap ? { readData: 0, write: null } : memoryStage(c.mem, p.exmem);
       if (r.write) memWrites.push(r.write);
       nextMemWb = { ...p.exmem, memReadData: r.readData };
-      memSlot = { trace: { ...nextMemWb, wbValue: writebackValue(p.exmem.ctrl, p.exmem.aluResult, r.readData, p.exmem.pc4), ecall: null }, note: null };
+      memSlot = { trace: { ...inFlight(p.exmem, r.readData), wbValue: writebackValue(p.exmem.ctrl, p.exmem.aluResult, r.readData, p.exmem.pc4) }, note: null };
     }
 
     // ---- EX (forwarding from EX/MEM and MEM/WB) --------------------------
@@ -110,12 +112,11 @@ export class PipelineProcessor implements Processor {
     let takenBranch = false;
     let branchTarget = 0;
     if (p.idex) {
-      const { fwdA, fwdB, opA, opB } = this.forward(p.idex, p.exmem, p.memwb);
-      const ex = executeStage({ ...p.idex, fwdA, fwdB, opA, opB });
+      const ex = executeStage({ ...p.idex, ...this.forward(p.idex, p.exmem, p.memwb), frm: frmOf(c.fcsr) });
       nextExMem = ex;
       takenBranch = ex.pcSrc === 'TARGET';
       branchTarget = ex.nextPc;
-      exSlot = { trace: { ...ex, memReadData: 0, wbValue: 0, ecall: null }, note: null };
+      exSlot = { trace: inFlight(ex), note: null };
     }
 
     // ---- ID (decode, register read, hazard detection) --------------------
@@ -129,12 +130,11 @@ export class PipelineProcessor implements Processor {
         c.finished = true;
         c.error = `Illegal instruction 0x${instr.word.toString(16).padStart(8, '0')} at PC 0x${pc.toString(16)}`;
       }
-      const rs1Val = c.regs[instr.rs1];
-      const rs2Val = c.regs[instr.rs2];
-      nextIdEx = { seq, pc, instr, ctrl, rs1Val, rs2Val };
+      const { rs1Val, rs2Val, rs3Val } = readSources(c.regs, instr);
+      nextIdEx = { seq, pc, instr, ctrl, rs1Val, rs2Val, rs3Val };
       hazard = this.detectHazard(instr, p.idex, p.exmem);
-      const partial = executeStage({ seq, pc, instr, ctrl, rs1Val, rs2Val, opA: rs1Val, opB: rs2Val });
-      idSlot = { trace: { ...partial, memReadData: 0, wbValue: 0, ecall: null }, note: hazard.stall ? hazard.reason : null };
+      const partial = executeStage({ seq, pc, instr, ctrl, rs1Val, rs2Val, rs3Val, opA: rs1Val, opB: rs2Val, opC: rs3Val, frm: frmOf(c.fcsr) });
+      idSlot = { trace: inFlight(partial), note: hazard.stall ? hazard.reason : null };
     }
 
     // ---- IF -------------------------------------------------------------
@@ -148,7 +148,7 @@ export class PipelineProcessor implements Processor {
       fetched = { seq, pc: c.pc, instr };
       const ctrl = control(instr);
       const partial = executeStage({ seq, pc: c.pc, instr, ctrl, rs1Val: 0, rs2Val: 0, opA: 0, opB: 0 });
-      ifSlot = { trace: { ...partial, memReadData: 0, wbValue: 0, ecall: null }, note: null };
+      ifSlot = { trace: inFlight(partial), note: null };
     } else {
       ifSlot = { trace: null, note: 'PC is past the end of the program; nothing to fetch.' };
     }
@@ -186,43 +186,56 @@ export class PipelineProcessor implements Processor {
   }
 
   /** Forwarding unit: pick EX operands from the newest in-flight producer. */
-  private forward(idex: IdEx, exmem: ExMem | null, memwb: MemWb | null): { fwdA: ForwardSrc; fwdB: ForwardSrc; opA: number; opB: number } {
-    const pick = (rs: number, used: boolean): { src: ForwardSrc; val: number } => {
-      const regVal = rs === idex.instr.rs1 ? idex.rs1Val : idex.rs2Val;
+  private forward(idex: IdEx, exmem: ExMem | null, memwb: MemWb | null): Forwarded {
+    const pick = (op: RegOperand, regVal: number, used: boolean): { src: ForwardSrc; val: number } => {
+      const rs = regIndex(idex.instr, op);
       if (!this.options.forwarding || !used || rs === 0) return { src: 'NONE', val: regVal };
-      if (exmem && exmem.ctrl.regWrite && exmem.instr.rd === rs && !exmem.ctrl.memRead) {
+      // CSR results only exist at WB, and loads only after MEM, so neither forwards from EX/MEM.
+      if (exmem && exmem.ctrl.regWrite && exmem.wbReg === rs && !exmem.ctrl.memRead && !exmem.ctrl.csr) {
         return { src: 'EXMEM', val: exmem.ctrl.wbSrc === 'PC4' ? exmem.pc4 : exmem.aluResult };
       }
-      if (memwb && memwb.ctrl.regWrite && memwb.instr.rd === rs) {
+      if (memwb && memwb.ctrl.regWrite && memwb.wbReg === rs && !memwb.ctrl.csr) {
         return { src: 'MEMWB', val: writebackValue(memwb.ctrl, memwb.aluResult, memwb.memReadData, memwb.pc4) };
       }
       return { src: 'NONE', val: regVal };
     };
-    const a = pick(idex.instr.rs1, usesRs1(idex.instr));
-    const b = pick(idex.instr.rs2, usesRs2(idex.instr) || idex.ctrl.memWrite !== null);
-    return { fwdA: a.src, fwdB: b.src, opA: a.val, opB: b.val };
+    const a = pick('rs1', idex.rs1Val, usesRs1(idex.instr));
+    const b = pick('rs2', idex.rs2Val, usesRs2(idex.instr) || idex.ctrl.memWrite !== null);
+    const c = pick('rs3', idex.rs3Val, usesRs3(idex.instr));
+    return { fwdA: a.src, fwdB: b.src, fwdC: c.src, opA: a.val, opB: b.val, opC: c.val };
   }
 
   /** Hazard detection unit, evaluated for the instruction in ID. */
   private detectHazard(instr: Decoded, idex: IdEx | null, exmem: ExMem | null): HazardInfo {
     if (!this.options.hazardDetection) return { stall: false, flush: false, reason: null };
-    const rs1 = usesRs1(instr) ? instr.rs1 : -1;
-    const rs2 = usesRs2(instr) ? instr.rs2 : -1;
-    const hits = (rd: number) => rd !== 0 && (rd === rs1 || rd === rs2);
+    const reads = new Set<number>();
+    if (usesRs1(instr)) reads.add(regIndex(instr, 'rs1'));
+    if (usesRs2(instr)) reads.add(regIndex(instr, 'rs2'));
+    if (usesRs3(instr)) reads.add(regIndex(instr, 'rs3'));
+    const hits = (rd: number) => rd !== 0 && reads.has(rd);
     const name = instr.def?.name ?? '?';
+    const idexRd = idex ? regIndex(idex.instr, 'rd') : 0;
 
-    if (idex && idex.ctrl.memRead && hits(idex.instr.rd)) {
+    if (idex && idex.ctrl.memRead && idex.ctrl.regWrite && hits(idexRd)) {
       return {
         stall: true, flush: false,
-        reason: `Load-use hazard: ${name} needs ${regName(idex.instr.rd)}, but the ${idex.instr.def?.name} ahead of it is still in EX and its data will not come out of memory until the end of MEM. Even forwarding cannot help yet, so the pipeline stalls one cycle.`,
+        reason: `Load-use hazard: ${name} needs ${unifiedRegName(idexRd)}, but the ${idex.instr.def?.name} ahead of it is still in EX and its data will not come out of memory until the end of MEM. Even forwarding cannot help yet, so the pipeline stalls one cycle.`,
+      };
+    }
+    const csrAhead = idex?.ctrl.csr ? idex : exmem?.ctrl.csr ? exmem : null;
+    if (csrAhead) {
+      const where = csrAhead === idex ? 'EX' : 'MEM';
+      return {
+        stall: true, flush: false,
+        reason: `CSR serialization: the ${csrAhead.instr.def?.name} in ${where} reads and writes its CSR only when it reaches WB (it may change the rounding mode or read the accrued FP flags), so ${name} waits in ID until then.`,
       };
     }
     if (!this.options.forwarding) {
-      if (idex && idex.ctrl.regWrite && hits(idex.instr.rd)) {
-        return { stall: true, flush: false, reason: `Data hazard: ${name} reads ${regName(idex.instr.rd)}, which ${idex.instr.def?.name} (in EX) has not written back yet. Forwarding is disabled, so the pipeline stalls until it reaches WB.` };
+      if (idex && idex.ctrl.regWrite && hits(idexRd)) {
+        return { stall: true, flush: false, reason: `Data hazard: ${name} reads ${unifiedRegName(idexRd)}, which ${idex.instr.def?.name} (in EX) has not written back yet. Forwarding is disabled, so the pipeline stalls until it reaches WB.` };
       }
-      if (exmem && exmem.ctrl.regWrite && hits(exmem.instr.rd)) {
-        return { stall: true, flush: false, reason: `Data hazard: ${name} reads ${regName(exmem.instr.rd)}, which ${exmem.instr.def?.name} (in MEM) has not written back yet. Forwarding is disabled, so the pipeline stalls until it reaches WB.` };
+      if (exmem && exmem.ctrl.regWrite && hits(exmem.wbReg)) {
+        return { stall: true, flush: false, reason: `Data hazard: ${name} reads ${unifiedRegName(exmem.wbReg)}, which ${exmem.instr.def?.name} (in MEM) has not written back yet. Forwarding is disabled, so the pipeline stalls until it reaches WB.` };
       }
     }
     return { stall: false, flush: false, reason: null };

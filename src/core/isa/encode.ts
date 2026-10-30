@@ -4,8 +4,14 @@ export interface Operands {
   readonly rd?: number;
   readonly rs1?: number;
   readonly rs2?: number;
+  readonly rs3?: number;
   readonly imm?: number;
+  /** Rounding mode for instructions with an rm field (default 7 = dynamic). */
+  readonly rm?: number;
 }
+
+/** rm encoding meaning "use the frm field of fcsr". */
+export const RM_DYNAMIC = 7;
 
 function field(value: number, hi: number, lo: number): number {
   const width = hi - lo + 1;
@@ -15,12 +21,17 @@ function field(value: number, hi: number, lo: number): number {
 
 /** Encode an instruction definition and operands into a 32-bit word. */
 export function encode(def: InstrDef, ops: Operands): number {
-  const rd = ops.rd ?? 0, rs1 = ops.rs1 ?? 0, rs2 = ops.rs2 ?? 0, imm = ops.imm ?? 0;
-  const f3 = def.funct3 ?? 0, f7 = def.funct7 ?? 0;
+  const rd = ops.rd ?? 0, rs1 = ops.rs1 ?? 0, imm = ops.imm ?? 0;
+  const rs2 = def.rs2Sel ?? ops.rs2 ?? 0;
+  const f3 = def.rm ? ops.rm ?? RM_DYNAMIC : def.funct3 ?? 0;
+  const f7 = def.funct7 ?? 0;
   let w = def.opcode;
   switch (def.format) {
     case 'R':
       w |= field(rd, 11, 7) | field(f3, 14, 12) | field(rs1, 19, 15) | field(rs2, 24, 20) | field(f7, 31, 25);
+      break;
+    case 'R4': // fmt (bits 26:25) = 00 for single precision
+      w |= field(rd, 11, 7) | field(f3, 14, 12) | field(rs1, 19, 15) | field(rs2, 24, 20) | field(ops.rs3 ?? 0, 31, 27);
       break;
     case 'I': {
       const immField = def.funct7 !== undefined ? (imm & 0x1f) | (f7 << 5) : imm;

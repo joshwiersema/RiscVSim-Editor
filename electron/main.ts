@@ -293,7 +293,7 @@ ipcMain.handle('compiler:compile', async (_e, source: string, extraFlags: string
   await fs.writeFile(src, source, 'utf8');
   const res = resourcesDir();
   const args = [
-    '-march=rv32imc', '-mabi=ilp32', '-nostdlib', '-nostartfiles', '-static', '-ffreestanding', '-fno-builtin',
+    '-march=rv32imfc', '-mabi=ilp32f', '-nostdlib', '-nostartfiles', '-static', '-ffreestanding', '-fno-builtin',
     '-Wl,--no-relax', `-Wl,-T,${path.join(res, 'riscsim.ld')}`, `-I${res}`,
     ...splitFlags(settings.compilerFlags), ...splitFlags(extraFlags),
     path.join(res, 'crt0.S'), src, '-o', out,

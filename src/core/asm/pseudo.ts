@@ -85,6 +85,63 @@ for (const st of ['sb', 'sh', 'sw']) {
   };
 }
 
+// FP loads and stores with a bare symbol: `flw fd, symbol, rt` / `fsw fs, symbol, rt`
+// (rt is an integer scratch register for the address, as in GNU as).
+PSEUDO.flw = (ops) => {
+  if (ops.length === 3 && !/\(/.test(ops[1]) && parseIntLiteral(ops[1]) === null) {
+    return [one('auipc', ops[2], `%pcrel_hi(${ops[1]})`), one('flw', ops[0], `%pcrel_lo(${ops[1]})(${ops[2]})`)];
+  }
+  return [one('flw', ...ops)];
+};
+PSEUDO.fsw = (ops) => {
+  if (ops.length === 3) return [one('auipc', ops[2], `%pcrel_hi(${ops[1]})`), one('fsw', ops[0], `%pcrel_lo(${ops[1]})(${ops[2]})`)];
+  return [one('fsw', ...ops)];
+};
+
+// Single-precision helpers built from sign injection and compares.
+Object.assign(PSEUDO, {
+  'fmv.s': arity(2, ([rd, rs]) => [one('fsgnj.s', rd, rs, rs)]),
+  'fneg.s': arity(2, ([rd, rs]) => [one('fsgnjn.s', rd, rs, rs)]),
+  'fabs.s': arity(2, ([rd, rs]) => [one('fsgnjx.s', rd, rs, rs)]),
+  'fgt.s': arity(3, ([rd, a, b]) => [one('flt.s', rd, b, a)]),
+  'fge.s': arity(3, ([rd, a, b]) => [one('fle.s', rd, b, a)]),
+  'fmv.x.s': arity(2, ([rd, rs]) => [one('fmv.x.w', rd, rs)]),
+  'fmv.s.x': arity(2, ([rd, rs]) => [one('fmv.w.x', rd, rs)]),
+} satisfies Record<string, Expander>);
+
+/** Read / swap / swap-immediate accessors for one CSR, e.g. frrm / fsrm / fsrmi. */
+function csrAccessors(csr: string, read: string, write: string, writeImm?: string): void {
+  PSEUDO[read] = arity(1, ([rd]) => [one('csrrs', rd, csr, 'x0')]);
+  PSEUDO[write] = (ops) => {
+    if (ops.length === 1) return [one('csrrw', 'x0', csr, ops[0])];
+    if (ops.length === 2) return [one('csrrw', ops[0], csr, ops[1])];
+    return `expected 1 or 2 operands, got ${ops.length}`;
+  };
+  if (!writeImm) return;
+  PSEUDO[writeImm] = (ops) => {
+    if (ops.length === 1) return [one('csrrwi', 'x0', csr, ops[0])];
+    if (ops.length === 2) return [one('csrrwi', ops[0], csr, ops[1])];
+    return `expected 1 or 2 operands, got ${ops.length}`;
+  };
+}
+csrAccessors('fcsr', 'frcsr', 'fscsr');
+csrAccessors('frm', 'frrm', 'fsrm', 'fsrmi');
+csrAccessors('fflags', 'frflags', 'fsflags', 'fsflagsi');
+
+// Generic CSR shorthands and the counters.
+Object.assign(PSEUDO, {
+  csrr: arity(2, ([rd, csr]) => [one('csrrs', rd, csr, 'x0')]),
+  csrw: arity(2, ([csr, rs]) => [one('csrrw', 'x0', csr, rs)]),
+  csrs: arity(2, ([csr, rs]) => [one('csrrs', 'x0', csr, rs)]),
+  csrc: arity(2, ([csr, rs]) => [one('csrrc', 'x0', csr, rs)]),
+  csrwi: arity(2, ([csr, imm]) => [one('csrrwi', 'x0', csr, imm)]),
+  csrsi: arity(2, ([csr, imm]) => [one('csrrsi', 'x0', csr, imm)]),
+  csrci: arity(2, ([csr, imm]) => [one('csrrci', 'x0', csr, imm)]),
+} satisfies Record<string, Expander>);
+for (const counter of ['cycle', 'time', 'instret', 'cycleh', 'timeh', 'instreth']) {
+  PSEUDO[`rd${counter}`] = arity(1, ([rd]) => [one('csrrs', rd, counter, 'x0')]);
+}
+
 /** Expand a pseudo-instruction, or return null if `op` is not a pseudo. */
 export function expandPseudo(op: string, operands: readonly string[]): Expanded[] | string | null {
   const fn = PSEUDO[op];

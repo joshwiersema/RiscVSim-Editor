@@ -24,6 +24,20 @@ static inline void print_hex(u32 v)            { rs_syscall(34, (i32)v, 0); }
 static inline void print_unsigned(u32 v)       { rs_syscall(36, (i32)v, 0); }
 static inline void exit_program(i32 code)      { rs_syscall(17, code, 0); for (;;) {} }
 
+/* Floating point (compiled hard-float: -march=rv32imfc -mabi=ilp32f).
+ * Floats travel in fa0, exactly as the simulator's float syscalls expect. */
+static inline void print_float(float f) {
+    register float r_fa0 __asm__("fa0") = f;
+    register i32 r_a7 __asm__("a7") = 2;
+    __asm__ volatile("ecall" : : "f"(r_fa0), "r"(r_a7) : "memory");
+}
+static inline float read_float(void) {
+    register float r_fa0 __asm__("fa0");
+    register i32 r_a7 __asm__("a7") = 6;
+    __asm__ volatile("ecall" : "=f"(r_fa0) : "r"(r_a7) : "memory");
+    return r_fa0;
+}
+
 /* Memory-mapped devices. */
 #define RS_LED_BASE     0xF0000000u   /* u32 per LED, 0x00RRGGBB, 16x16 row-major */
 #define RS_LED_WIDTH    16

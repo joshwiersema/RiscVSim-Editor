@@ -1,5 +1,5 @@
 /**
- * RV32C: expansion of 16-bit compressed instructions into their 32-bit
+ * RV32C (+ the RV32FC float loads/stores): expansion of 16-bit compressed instructions into their 32-bit
  * equivalents, and compression of 32-bit instructions when a compressed
  * form exists. The simulator always executes the expanded form, exactly
  * like a hardware "decompressor" in front of the decoder.
@@ -42,9 +42,17 @@ export function expandCompressed(h: number): Expanded | null {
         const imm = (f(h, 5, 5) << 6) | (f(h, 12, 10) << 3) | (f(h, 6, 6) << 2);
         return { word: enc('lw', { rd: rp(f(h, 4, 2)), rs1: rp(f(h, 9, 7)), imm }), name: 'c.lw' };
       }
+      case 3: { // c.flw
+        const imm = (f(h, 5, 5) << 6) | (f(h, 12, 10) << 3) | (f(h, 6, 6) << 2);
+        return { word: enc('flw', { rd: rp(f(h, 4, 2)), rs1: rp(f(h, 9, 7)), imm }), name: 'c.flw' };
+      }
       case 6: { // c.sw
         const imm = (f(h, 5, 5) << 6) | (f(h, 12, 10) << 3) | (f(h, 6, 6) << 2);
         return { word: enc('sw', { rs2: rp(f(h, 4, 2)), rs1: rp(f(h, 9, 7)), imm }), name: 'c.sw' };
+      }
+      case 7: { // c.fsw
+        const imm = (f(h, 5, 5) << 6) | (f(h, 12, 10) << 3) | (f(h, 6, 6) << 2);
+        return { word: enc('fsw', { rs2: rp(f(h, 4, 2)), rs1: rp(f(h, 9, 7)), imm }), name: 'c.fsw' };
       }
       default: return null;
     }
@@ -101,6 +109,10 @@ export function expandCompressed(h: number): Expanded | null {
       const imm = (f(h, 3, 2) << 6) | (f(h, 12, 12) << 5) | (f(h, 6, 4) << 2);
       return { word: enc('lw', { rd, rs1: 2, imm }), name: 'c.lwsp' };
     }
+    case 3: { // c.flwsp (any f register, including f0)
+      const imm = (f(h, 3, 2) << 6) | (f(h, 12, 12) << 5) | (f(h, 6, 4) << 2);
+      return { word: enc('flw', { rd, rs1: 2, imm }), name: 'c.flwsp' };
+    }
     case 4: {
       if (f(h, 12, 12) === 0) {
         if (rs2 === 0) return rd === 0 ? null : { word: enc('jalr', { rd: 0, rs1: rd, imm: 0 }), name: 'c.jr' };
@@ -115,6 +127,10 @@ export function expandCompressed(h: number): Expanded | null {
     case 6: {
       const imm = (f(h, 8, 7) << 6) | (f(h, 12, 9) << 2);
       return { word: enc('sw', { rs2, rs1: 2, imm }), name: 'c.swsp' };
+    }
+    case 7: {
+      const imm = (f(h, 8, 7) << 6) | (f(h, 12, 9) << 2);
+      return { word: enc('fsw', { rs2, rs1: 2, imm }), name: 'c.fswsp' };
     }
     default: return null;
   }
@@ -192,6 +208,19 @@ export function compressWord(word: number): Expanded | null {
       if (isRp(rs1) && isRp(rs2) && immS >= 0 && (immS & 3) === 0 && immS < 128) return { word: 0xc000 | (bits2(immS, 5, 3) << 10) | ((rs1 - 8) << 7) | (bit(immS, 2) << 6) | (bit(immS, 6) << 5) | ((rs2 - 8) << 2), name: 'c.sw' };
       return null;
     }
+    case 0x07: { // LOAD-FP (flw only)
+      if (f3 !== 2) return null;
+      if (rs1 === 2 && immI >= 0 && (immI & 3) === 0 && immI < 256) return { word: 0x6002 | (rd << 7) | (bit(immI, 5) << 12) | (bits2(immI, 4, 2) << 4) | (bits2(immI, 7, 6) << 2), name: 'c.flwsp' };
+      if (isRp(rd) && isRp(rs1) && immI >= 0 && (immI & 3) === 0 && immI < 128) return { word: 0x6000 | (bits2(immI, 5, 3) << 10) | ((rs1 - 8) << 7) | (bit(immI, 2) << 6) | (bit(immI, 6) << 5) | ((rd - 8) << 2), name: 'c.flw' };
+      return null;
+    }
+    case 0x27: { // STORE-FP (fsw only)
+      if (f3 !== 2) return null;
+      const immS = sext((f7 << 5) | rd, 12);
+      if (rs1 === 2 && immS >= 0 && (immS & 3) === 0 && immS < 256) return { word: 0xe002 | (bits2(immS, 5, 2) << 9) | (bits2(immS, 7, 6) << 7) | (rs2 << 2), name: 'c.fswsp' };
+      if (isRp(rs1) && isRp(rs2) && immS >= 0 && (immS & 3) === 0 && immS < 128) return { word: 0xe000 | (bits2(immS, 5, 3) << 10) | ((rs1 - 8) << 7) | (bit(immS, 2) << 6) | (bit(immS, 6) << 5) | ((rs2 - 8) << 2), name: 'c.fsw' };
+      return null;
+    }
     case 0x37: { // LUI
       const imm = word >> 12;
       if (rd !== 0 && rd !== 2 && imm !== 0 && inRange(imm, 6)) return { word: 0x6001 | (rd << 7) | imm6(imm), name: 'c.lui' };
@@ -228,6 +257,7 @@ export function compressWord(word: number): Expanded | null {
 export const COMPRESSED_NAMES: readonly string[] = [
   'c.addi4spn', 'c.lw', 'c.sw', 'c.nop', 'c.addi', 'c.jal', 'c.li', 'c.addi16sp', 'c.lui', 'c.srli', 'c.srai', 'c.andi',
   'c.sub', 'c.xor', 'c.or', 'c.and', 'c.j', 'c.beqz', 'c.bnez', 'c.slli', 'c.lwsp', 'c.jr', 'c.mv', 'c.ebreak', 'c.jalr', 'c.add', 'c.swsp',
+  'c.flw', 'c.fsw', 'c.flwsp', 'c.fswsp',
 ];
 
 /**
@@ -250,6 +280,10 @@ export function lowerCompressedMnemonic(name: string, ops: readonly string[]): {
     case 'c.slli': case 'c.srli': case 'c.srai': return need(2) ?? { op: name.slice(2), operands: [ops[0], ops[0], ops[1]] };
     case 'c.lw': return need(2) ?? { op: 'lw', operands: [ops[0], ops[1]] };
     case 'c.sw': return need(2) ?? { op: 'sw', operands: [ops[0], ops[1]] };
+    case 'c.flw': return need(2) ?? { op: 'flw', operands: [ops[0], ops[1]] };
+    case 'c.fsw': return need(2) ?? { op: 'fsw', operands: [ops[0], ops[1]] };
+    case 'c.flwsp': return need(2) ?? { op: 'flw', operands: [ops[0], /\(/.test(ops[1]) ? ops[1] : `${ops[1]}(sp)`] };
+    case 'c.fswsp': return need(2) ?? { op: 'fsw', operands: [ops[0], /\(/.test(ops[1]) ? ops[1] : `${ops[1]}(sp)`] };
     case 'c.lwsp': return need(2) ?? { op: 'lw', operands: [ops[0], /\(/.test(ops[1]) ? ops[1] : `${ops[1]}(sp)`] };
     case 'c.swsp': return need(2) ?? { op: 'sw', operands: [ops[0], /\(/.test(ops[1]) ? ops[1] : `${ops[1]}(sp)`] };
     case 'c.j': return need(1) ?? { op: 'jal', operands: ['x0', ops[0]] };

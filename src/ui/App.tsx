@@ -11,6 +11,7 @@ import { Tabs } from './components/Tabs';
 import { Editor } from './editor/Editor';
 import { Datapath } from './datapath/Datapath';
 import { RegistersPanel } from './panels/RegistersPanel';
+import { FloatPanel } from './panels/FloatPanel';
 import { MemoryPanel } from './panels/MemoryPanel';
 import { ConsolePanel } from './panels/ConsolePanel';
 import { NarrationPanel } from './panels/NarrationPanel';
@@ -38,6 +39,7 @@ const SIDEBAR_VIEWS: Record<SidebarView, () => ReactNode> = {
   editor: () => <Editor />,
   program: () => <ProgramPanel />,
   memory: () => <MemoryPanel />,
+  float: () => <FloatPanel />,
   cache: () => <CachePanel />,
   io: () => <IoPanel />,
   console: () => <ConsolePanel />,
@@ -124,6 +126,7 @@ export function App() {
           <Tabs
             tabs={[
               { id: 'registers', label: 'Registers', content: <RegistersPanel /> },
+              { id: 'float', label: 'Float', content: <FloatPanel /> },
               { id: 'memory', label: 'Memory', content: <MemoryPanel /> },
             ]}
             trailing={

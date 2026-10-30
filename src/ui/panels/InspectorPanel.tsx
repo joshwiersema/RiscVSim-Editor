@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
 import { bits, disassemble } from '@/core/isa/decode';
 import type { Format } from '@/core/isa/instructions';
-import { regName } from '@/core/isa/registers';
+import { operandName, usesRs1, usesRs2, usesRs3 } from '@/core/isa/operands';
+import { RM_MNEMONICS } from '@/core/fp/format';
 import type { InstrTrace } from '@/core/sim/types';
 import { hex32 } from '@/core/util/format';
 import { explainFor } from '../datapath/useExplain';
@@ -11,6 +12,7 @@ import { useStore } from '../state/store';
 interface Field { readonly name: string; readonly hi: number; readonly lo: number; readonly cls: string }
 
 const FIELDS: Record<Format, readonly Field[]> = {
+  R4: [{ name: 'rs3', hi: 31, lo: 27, cls: 'f-rs3' }, { name: 'fmt', hi: 26, lo: 25, cls: 'f-funct' }, { name: 'rs2', hi: 24, lo: 20, cls: 'f-rs2' }, { name: 'rs1', hi: 19, lo: 15, cls: 'f-rs1' }, { name: 'rm', hi: 14, lo: 12, cls: 'f-funct' }, { name: 'rd', hi: 11, lo: 7, cls: 'f-rd' }, { name: 'opcode', hi: 6, lo: 0, cls: 'f-op' }],
   R: [{ name: 'funct7', hi: 31, lo: 25, cls: 'f-funct' }, { name: 'rs2', hi: 24, lo: 20, cls: 'f-rs2' }, { name: 'rs1', hi: 19, lo: 15, cls: 'f-rs1' }, { name: 'funct3', hi: 14, lo: 12, cls: 'f-funct' }, { name: 'rd', hi: 11, lo: 7, cls: 'f-rd' }, { name: 'opcode', hi: 6, lo: 0, cls: 'f-op' }],
   I: [{ name: 'imm[11:0]', hi: 31, lo: 20, cls: 'f-imm' }, { name: 'rs1', hi: 19, lo: 15, cls: 'f-rs1' }, { name: 'funct3', hi: 14, lo: 12, cls: 'f-funct' }, { name: 'rd', hi: 11, lo: 7, cls: 'f-rd' }, { name: 'opcode', hi: 6, lo: 0, cls: 'f-op' }],
   S: [{ name: 'imm[11:5]', hi: 31, lo: 25, cls: 'f-imm' }, { name: 'rs2', hi: 24, lo: 20, cls: 'f-rs2' }, { name: 'rs1', hi: 19, lo: 15, cls: 'f-rs1' }, { name: 'funct3', hi: 14, lo: 12, cls: 'f-funct' }, { name: 'imm[4:0]', hi: 11, lo: 7, cls: 'f-imm' }, { name: 'opcode', hi: 6, lo: 0, cls: 'f-op' }],
@@ -92,10 +94,11 @@ function InstructionCard({ t }: { t: InstrTrace }) {
       )}
       {fmt && (
         <div className="instr-fields mono muted">
-          {fmt !== 'U' && fmt !== 'J' && <span>rs1={regName(t.instr.rs1)} </span>}
-          {(fmt === 'R' || fmt === 'S' || fmt === 'B') && <span>rs2={regName(t.instr.rs2)} </span>}
-          {fmt !== 'S' && fmt !== 'B' && <span>rd={regName(t.instr.rd)} </span>}
-          {fmt !== 'R' && <span>imm={t.imm} </span>}
+          {usesRs1(t.instr) && <span>rs1={operandName(t.instr, 'rs1')} </span>}
+          {usesRs2(t.instr) && <span>rs2={operandName(t.instr, 'rs2')} </span>}
+          {usesRs3(t.instr) && <span>rs3={operandName(t.instr, 'rs3')} </span>}
+          {fmt !== 'S' && fmt !== 'B' && <span>rd={operandName(t.instr, 'rd')} </span>}
+          {fmt !== 'R' && fmt !== 'R4' && <span>imm={t.imm} </span>}
         </div>
       )}
     </div>
@@ -103,7 +106,12 @@ function InstructionCard({ t }: { t: InstrTrace }) {
 }
 
 function fieldValue(f: Field, v: number, t: InstrTrace): string {
-  if (f.name === 'rd' || f.name === 'rs1' || f.name === 'rs2') return regName(v);
+  if (f.name === 'rd' || f.name === 'rs1' || f.name === 'rs2' || f.name === 'rs3') {
+    // Unary FP ops use the rs2 field as an operation selector, not a register.
+    if (f.name === 'rs2' && t.instr.def?.rs2Sel !== undefined) return String(v);
+    return operandName(t.instr, f.name);
+  }
+  if (f.name === 'rm' || (f.name === 'funct3' && t.instr.def?.rm)) return RM_MNEMONICS[v] || String(v);
   if (f.name === 'opcode') return t.instr.def?.name ?? '?';
   if (f.name.startsWith('imm')) return String(t.imm);
   return String(v);
